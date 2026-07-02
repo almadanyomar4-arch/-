@@ -2,7 +2,7 @@
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
@@ -11,25 +11,26 @@
 <link rel="manifest" href="manifest.json"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#0d1117;color:#e8f0ff;direction:rtl;max-width:480px;margin:0 auto;min-height:100vh;padding-bottom:76px;font-size:14px}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#0d1117;color:#e8f0ff;direction:rtl;max-width:480px;margin:0 auto;min-height:100vh;padding-bottom:calc(84px + env(safe-area-inset-bottom, 12px));font-size:15px}
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
-input,select,button,textarea{font-family:inherit;font-size:14px}
+input,select,button,textarea{font-family:inherit;font-size:15px}
 input::placeholder{color:#374151}
 button{cursor:pointer}
 .page{display:none;padding:16px;animation:fadeIn .2s ease}
 .page.active{display:block}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 /* NAV */
-#nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(13,17,23,.98);border-top:1px solid rgba(255,255,255,.08);display:flex;z-index:200}
-.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;padding:8px 4px 10px;color:#374151;transition:color .2s}
+#nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(13,17,23,.98);border-top:1px solid rgba(255,255,255,.08);display:flex;z-index:200;padding:0 calc(6px + env(safe-area-inset-right, 0px)) calc(8px + env(safe-area-inset-bottom, 14px)) calc(6px + env(safe-area-inset-left, 0px))}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;padding:10px 4px 8px;color:#374151;transition:color .2s}
 .nav-btn.active{color:#e8d5a3}
-.nav-btn span{font-size:9px;font-weight:700}
+.nav-btn span:first-child{font-size:21px}
+.nav-btn span:last-child{font-size:11px;font-weight:700}
 .nav-dot{width:18px;height:2px;background:#e8d5a3;border-radius:1px;display:none}
 .nav-btn.active .nav-dot{display:block}
 /* HEADER */
-#header{background:rgba(13,17,23,.97);padding:12px 16px;position:sticky;top:0;z-index:100;border-bottom:1px solid rgba(255,255,255,.07);display:flex;justify-content:space-between;align-items:center}
-#header h1{color:#e8d5a3;font-size:15px;font-weight:800}
-#balance-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px}
+#header{background:rgba(13,17,23,.97);padding:calc(14px + env(safe-area-inset-top, 22px)) calc(16px + env(safe-area-inset-right, 4px)) 14px calc(16px + env(safe-area-inset-left, 4px));position:sticky;top:0;z-index:100;border-bottom:1px solid rgba(255,255,255,.07);display:flex;justify-content:space-between;align-items:center}
+#header h1{color:#e8d5a3;font-size:17px;font-weight:800}
+#balance-badge{font-size:12px;font-weight:700;padding:4px 10px;border-radius:12px}
 /* CARDS GRID */
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
 .card{border-radius:14px;padding:13px 14px;position:relative;overflow:hidden}
@@ -112,7 +113,7 @@ button{cursor:pointer}
 /* CHILDREN LIST */
 .child-item{display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,.04);border-radius:8px;padding:7px 12px;margin-bottom:6px;font-size:13px;color:#c8d8f0}
 /* OFFLINE BADGE */
-.offline-badge{background:rgba(34,197,94,.12);color:#86efac;font-size:10px;font-weight:700;padding:3px 8px;border-radius:12px;border:1px solid rgba(34,197,94,.25)}
+.offline-badge{background:rgba(34,197,94,.12);color:#86efac;font-size:11px;font-weight:700;padding:4px 10px;border-radius:12px;border:1px solid rgba(34,197,94,.25)}
 /* PRINT */
 @media print{
   body *{visibility:hidden}
@@ -199,11 +200,11 @@ button{cursor:pointer}
 
 <!-- BOTTOM NAV -->
 <div id="nav">
-  <button class="nav-btn active" id="nav-home" onclick="navTo('home')"><span style="font-size:18px">🏠</span><span>الرئيسية</span><div class="nav-dot"></div></button>
-  <button class="nav-btn" id="nav-families" onclick="navTo('families')"><span style="font-size:18px">👥</span><span>الأسر</span><div class="nav-dot"></div></button>
-  <button class="nav-btn" id="nav-finance" onclick="navTo('finance')"><span style="font-size:18px">💰</span><span>المالية</span><div class="nav-dot"></div></button>
-  <button class="nav-btn" id="nav-reports" onclick="navTo('reports')"><span style="font-size:18px">📈</span><span>التقارير</span><div class="nav-dot"></div></button>
-  <button class="nav-btn" id="nav-settings" onclick="navTo('settings')"><span style="font-size:18px">⚙️</span><span>الإعدادات</span><div class="nav-dot"></div></button>
+  <button class="nav-btn active" id="nav-home" onclick="navTo('home')"><span>🏠</span><span>الرئيسية</span><div class="nav-dot"></div></button>
+  <button class="nav-btn" id="nav-families" onclick="navTo('families')"><span>👥</span><span>الأسر</span><div class="nav-dot"></div></button>
+  <button class="nav-btn" id="nav-finance" onclick="navTo('finance')"><span>💰</span><span>المالية</span><div class="nav-dot"></div></button>
+  <button class="nav-btn" id="nav-reports" onclick="navTo('reports')"><span>📈</span><span>التقارير</span><div class="nav-dot"></div></button>
+  <button class="nav-btn" id="nav-settings" onclick="navTo('settings')"><span>⚙️</span><span>الإعدادات</span><div class="nav-dot"></div></button>
 </div>
 
 <!-- MODAL -->
