@@ -140,8 +140,9 @@ button{cursor:pointer}
 <!-- HEADER -->
 <div id="header">
   <h1 id="org-name-hdr">صندوق الاشتراكات</h1>
-  <div style="display:flex;align-items:center;gap:8px">
+  <div style="display:flex;align-items:center;gap:6px">
     <span class="offline-badge" id="conn-badge">⚪ بدون إنترنت</span>
+    <button id="sync-btn" onclick="saveServerUrl();pushToServer()" style="background:rgba(34,197,94,.12);color:#86efac;border:1px solid rgba(34,197,94,.25);border-radius:12px;padding:4px 8px;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;display:none">🔄 مزامنة</button>
     <span id="balance-badge" class="badge-green">0.000 د.ل</span>
   </div>
 </div>
@@ -229,7 +230,7 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 const PIN_KEY = "sub_pin";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
@@ -264,12 +265,33 @@ function monthsSince(start){
   return keys;
 }
 function famFee(f){ return FEE*(1+(f.children||[]).length); }
-function famDue(f){ return monthsSince(f.startDate||f.createdAt?.slice(0,7)); }
-function famPaid(f){ return Object.keys(f.payments||{}); }
-function famUnpaid(f){ return famDue(f).filter(k=>!famPaid(f).includes(k)); }
-function famTotalDue(f){ return famDue(f).length*famFee(f); }
+function famDueMonths(f){ return monthsSince(f.startDate||f.createdAt?.slice(0,7)); }
+function famPaidMonths(f){ return Object.keys(f.payments||{}); }
+
+function famActiveCount(f, monthKey){
+  let c = monthKey>=(f.startDate||"0000-00")?1:0;
+  for(const ch of (f.children||[])){ if(monthKey>=(ch.startDate||f.startDate||"0000-00")) c++; }
+  return c;
+}
+function famFeeForMonth(f, monthKey){ return FEE*famActiveCount(f, monthKey); }
+
+function famUnpaid(f){
+  const all = famDueMonths(f);
+  const paid = famPaidMonths(f);
+  return all.filter(k=>!paid.includes(k));
+}
+function famTotalDue(f){
+  return famDueMonths(f).reduce((s,m)=>s+famFeeForMonth(f,m),0);
+}
 function famTotalPaid(f){ return Object.values(f.payments||{}).reduce((s,p)=>s+Number(p.amount||0),0); }
-function famBalance(f){ return famTotalPaid(f)+Number(f.carryOver||0)-famTotalDue(f); }
+function famBalance(f){ return famTotalPaid(f)+Number(f.carryOver||0)+Number(f.credit||0)-famTotalDue(f); }
+
+function monthsUntilYearEnd(){
+  const n=new Date();
+  const keys=[];
+  for(let m=n.getMonth()+1; m<=12; m++) keys.push(n.getFullYear()+"-"+String(m).padStart(2,"0"));
+  return keys;
+}
 
 // ============================================================
 // DERIVED TOTALS
@@ -277,10 +299,11 @@ function famBalance(f){ return famTotalPaid(f)+Number(f.carryOver||0)-famTotalDu
 function totals(){
   const allPaid = db.families.reduce((s,f)=>s+famTotalPaid(f),0);
   const allCarry = db.families.reduce((s,f)=>s+Number(f.carryOver||0),0);
+  const allCredit = db.families.reduce((s,f)=>s+Number(f.credit||0),0);
   const allDue   = db.families.reduce((s,f)=>s+famTotalDue(f),0);
   const expenses = db.expenses.reduce((s,e)=>s+Number(e.amount||0),0);
   const deposits = db.deposits.reduce((s,d)=>s+Number(d.amount||0),0);
-  const balance  = Number(db.carryOver||0)+allCarry+allPaid+deposits-expenses;
+  const balance  = Number(db.carryOver||0)+allCarry+allCredit+allPaid+deposits-expenses;
   const members  = db.families.reduce((s,f)=>s+1+(f.children||[]).length,0);
   return {allPaid,allCarry,allDue,expenses,deposits,balance,members};
 }
@@ -336,10 +359,13 @@ function renderHome(){
   if(late.length>0){
     la.innerHTML = `<div class="info-box info-red" style="margin-bottom:14px">
       <div style="color:#fca5a5;font-weight:700;margin-bottom:8px">⚠️ ${late.length} أسرة لديها شهور متأخرة</div>
-      ${late.slice(0,5).map(f=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px">
+      ${late.slice(0,5).map(f=>{
+        const u=famUnpaid(f); const dueAmt=u.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+        return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px">
         <span style="color:#e0e8ff">${f.name}</span>
-        <span style="color:#fca5a5">${famUnpaid(f).length} شهر | ${fmtMoney(famUnpaid(f).length*famFee(f))}</span>
-      </div>`).join("")}
+        <span style="color:#fca5a5">${u.length} شهر | ${fmtMoney(dueAmt)}</span>
+      </div>`;
+      }).join("")}
       ${late.length>5?`<div style="color:#6b7a99;font-size:12px;margin-top:8px">+${late.length-5} أخرى...</div>`:""}
     </div>`;
   } else { la.innerHTML=""; }
@@ -377,22 +403,25 @@ function showFamEdit(id){
 
 function renderFamilies(){
   const q = (document.getElementById("search-bar")||{}).value||"";
-  const all = db.families.filter(f=>f.name.includes(q)||f.phone?.includes(q)||(f.children||[]).some(c=>c.name.includes(q)));
+  const all = db.families.filter(f=>f.name.includes(q)||f.phone?.includes(q)||f.phone2?.includes(q)||(f.children||[]).some(c=>c.name.includes(q)));
   document.getElementById("fam-count").textContent = `الأسر (${db.families.length})`;
   const el = document.getElementById("fam-list");
   if(!el) return;
   if(all.length===0){ el.innerHTML=`<div style="text-align:center;color:#4b5563;padding:40px 0">لا توجد نتائج</div>`; return; }
   el.innerHTML = all.map(f=>{
     const unpaid=famUnpaid(f); const bal=famBalance(f);
+    const dueAmt = unpaid.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+    const phones = [f.phone, f.phone2].filter(Boolean).join(" • ");
     return `<div class="item ${unpaid.length>0?'late':''}" onclick="showFamDetail('${f.id}')">
       <div class="item-top">
         <div>
           <div class="item-name">${f.name}</div>
-          <div class="item-sub">${f.phone||""} • ${1+(f.children||[]).length} أفراد${f.startDate?" • من "+monthLabel(f.startDate):""}</div>
+          <div class="item-sub">${phones} • ${1+(f.children||[]).length} أفراد${f.startDate?" • من "+monthLabel(f.startDate):""}</div>
         </div>
         <div style="text-align:left">
           <span class="badge ${unpaid.length===0?'badge-green':'badge-red'}">${unpaid.length===0?"✓ محدّث":"⚠ "+unpaid.length+" شهر"}</span>
-          <div style="color:${bal>=0?"#86efac":"#fca5a5"};font-size:11px;margin-top:4px;font-weight:600">${fmtMoney(Math.abs(bal))} ${bal>=0?"✓":"↑"}</div>
+          ${unpaid.length>0?`<div style="color:#fca5a5;font-size:11px;margin-top:2px;font-weight:600">${fmtMoney(dueAmt)} مستحقة</div>`:""}
+          <div style="color:${bal>=0?"#86efac":"#fca5a5"};font-size:11px;margin-top:2px;font-weight:600">${fmtMoney(Math.abs(bal))} ${bal>=0?"✓":"↑"}</div>
         </div>
       </div>
       <div class="btn-row" onclick="event.stopPropagation()">
@@ -407,26 +436,47 @@ function renderFamilies(){
 function renderFamDetail(id){
   const f = db.families.find(x=>x.id===id);
   if(!f){ showFamList(); return; }
-  const unpaid=famUnpaid(f); const paid=famPaid(f); const bal=famBalance(f);
+  const unpaid=famUnpaid(f); const paidMonths=famPaidMonths(f); const bal=famBalance(f);
+  const dueMonths = famDueMonths(f);
+  const dueAmt = unpaid.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+  const phones = [f.phone, f.phone2].filter(Boolean).join(" • ");
   document.getElementById("fam-detail-view").innerHTML = `
     <button class="back-btn" onclick="showFamList()">◄ رجوع</button>
     <div style="background:linear-gradient(135deg,rgba(59,130,246,.2),rgba(99,102,241,.1));border-radius:18px;padding:18px;margin-bottom:14px">
       <div style="color:#e8d5a3;font-size:19px;font-weight:800">${f.name}</div>
-      <div style="color:#8899bb;font-size:13px;margin-top:4px">${f.phone||""}${f.email?" • "+f.email:""}</div>
+      <div style="color:#8899bb;font-size:13px;margin-top:4px">${phones}${f.email?" • "+f.email:""}</div>
       ${f.startDate?`<div style="color:#fcd34d;font-size:12px;margin-top:4px">📅 بداية الاستحقاق: ${monthLabel(f.startDate)}</div>`:""}
     </div>
     <div class="cards" style="margin-bottom:14px">
       ${card("الأفراد","👤","#3b82f6",1+(f.children||[]).length,"")}
       ${card("اشتراك شهري","💵","#22c55e",fmtMoney(famFee(f)),"")}
-      ${card("شهور مدفوعة","✅","#8b5cf6",paid.length+" / "+famDue(f).length+" شهر","")}
+      ${card("شهور مدفوعة","✅","#8b5cf6",paidMonths.length+" / "+dueMonths.length+" شهر","")}
       ${card("رصيد الحساب","💰","#"+(bal>=0?"22c55e":"ef4444"),fmtMoney(Math.abs(bal)),bal>=0?"✓ لا متأخرات":"⚠️ متأخر")}
     </div>
     ${Number(f.carryOver||0)>0?`<div class="info-box info-amber" style="margin-bottom:12px">
       <div style="color:#fcd34d;font-weight:700;font-size:13px">🔄 رصيد مرحّل سابق</div>
       <div style="color:#fbbf24;font-size:16px;font-weight:800;margin-top:4px">${fmtMoney(f.carryOver)}</div>
     </div>`:""}
+    ${Number(f.credit||0)>0?`<div class="info-box info-green" style="margin-bottom:12px">
+      <div style="color:#86efac;font-weight:700;font-size:13px">💰 رصيد معلق / دفعة مقدمة</div>
+      <div style="color:#86efac;font-size:16px;font-weight:800;margin-top:4px">${fmtMoney(f.credit)}</div>
+    </div>`:""}
     ${(f.children||[]).length>0?`<div class="section"><div class="section-title">الأبناء</div>
-      ${f.children.map(c=>`<div class="child-item">👤 ${c.name}</div>`).join("")}
+      ${f.children.map(c=>{
+        const cs = c.startDate||f.startDate;
+        const cDue = monthsSince(cs||"0000-00").filter(m=>m<=dueMonths[dueMonths.length-1]);
+        const cPaid = paidMonths.filter(m=>famActiveCount(f,m)>1);
+        return `<div class="child-item" style="flex-direction:column;align-items:stretch">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span>👤 ${c.name}</span>
+            <div>
+              <span class="badge badge-blue" style="font-size:10px">${cs?monthLabel(cs):"—"}</span>
+              <button class="btn btn-sm" style="background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)" onclick="promoteChild('${f.id}','${c.id}')">📤 نقل</button>
+            </div>
+          </div>
+          <div style="color:#6b7a99;font-size:11px;margin-top:4px">بداية الاستحقاق: ${cs?monthLabel(cs):"—"}</div>
+        </div>`;
+      }).join("")}
     </div>`:""}
     ${(f.whatsapp||f.messenger||f.telegram||f.bankName)?`<div class="section"><div class="section-title">معلومات التواصل</div>
       ${f.whatsapp?`<div style="color:#86efac;font-size:13px;padding:4px 0">📱 واتساب: ${f.whatsapp}</div>`:""}
@@ -435,9 +485,9 @@ function renderFamDetail(id){
       ${f.bankName?`<div style="color:#fcd34d;font-size:13px;padding:4px 0">🏦 ${f.bankName}: ${f.accountNo||""}</div>`:""}
     </div>`:""}
     ${unpaid.length>0?`<div class="info-box info-red">
-      <div style="color:#fca5a5;font-weight:700;font-size:13px;margin-bottom:6px">⚠️ شهور غير مدفوعة (${unpaid.length})</div>
+      <div style="color:#fca5a5;font-weight:700;font-size:13px;margin-bottom:6px">⚠️ شهور غير مدفوعة (${unpaid.length}) بقيمة ${fmtMoney(dueAmt)}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${unpaid.map(k=>`<span class="badge badge-red">${monthLabel(k)}</span>`).join("")}
+        ${unpaid.map(k=>`<span class="badge badge-red">${monthLabel(k)} (${fmtMoney(famFeeForMonth(f,k))})</span>`).join("")}
       </div>
     </div>`:"<div class='info-box info-green' style='margin-bottom:12px'><div style='color:#86efac;font-weight:700'>✓ جميع الشهور مدفوعة!</div></div>"}
     ${unpaid.length>0 && (f.whatsapp||f.phone) ? `<button class="btn" style="background:linear-gradient(135deg,#25d366,#128c4a);color:#fff" onclick="sendWhatsAppReminder('${f.id}')">📱 إرسال تذكير واتساب</button>` : ""}
@@ -470,8 +520,40 @@ function sendWhatsAppReminder(id){
   const unpaid = famUnpaid(f);
   const phone = (f.whatsapp||f.phone||"").replace(/[^\d]/g,"");
   if(!phone){ showToast("لا يوجد رقم هاتف مسجل",true); return; }
-  const msg = "مرحباً "+f.name+"،\nتذكير بخصوص اشتراك "+db.settings.orgName+":\nالشهور المستحقة: "+unpaid.map(monthLabel).join("، ")+"\nالمبلغ المستحق: "+fmtMoney(unpaid.length*famFee(f))+"\nشكراً لتعاونكم 🙏";
+  const totalDueAmt = unpaid.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+  const msg = "مرحباً "+f.name+"،\nتذكير بخصوص اشتراك "+db.settings.orgName+":\nالشهور المستحقة: "+unpaid.map(monthLabel).join("، ")+"\nالمبلغ المستحق: "+fmtMoney(totalDueAmt)+"\nشكراً لتعاونكم 🙏";
   window.open("https://wa.me/"+phone+"?text="+encodeURIComponent(msg), "_blank");
+}
+
+function promoteChild(famId, childId){
+  if(!confirm("هل تريد نقل هذا الابن إلى أسرة مستقلة جديدة؟")) return;
+  const f = db.families.find(x=>x.id===famId); if(!f) return;
+  const ci = f.children.findIndex(c=>c.id===childId); if(ci===-1) return;
+  const child = f.children[ci];
+  const cs = child.startDate||f.startDate||nowKey();
+  const newFam = {
+    id: genId(),
+    name: child.name,
+    phone: f.phone,
+    phone2: "",
+    email: "",
+    whatsapp: "", messenger: "", telegram: "",
+    bankName: "", accountNo: "", address: "", notes: "منقول من أسرة: "+f.name,
+    startDate: cs,
+    carryOver: 0, credit: 0,
+    children: [],
+    payments: {},
+    createdAt: new Date().toISOString()
+  };
+  const childPaidMonths = Object.keys(f.payments||{}).filter(m=>famActiveCount(f,m)>1);
+  for(const m of childPaidMonths){
+    newFam.payments[m] = {date: f.payments[m].date, amount: FEE};
+  }
+  f.children.splice(ci,1);
+  db.families.push(newFam);
+  save();
+  showFamDetail(famId);
+  showToast("تم نقل "+child.name+" إلى أسرة جديدة ✓");
 }
 
 // ============================================================
@@ -481,32 +563,39 @@ let tempChildren = [];
 
 function famForm(existing){
   tempChildren = existing ? JSON.parse(JSON.stringify(existing.children||[])) : [];
+  if(tempChildren.length===0 && !existing) tempChildren = [];
   const f = existing||{};
   const isEdit = !!existing;
   return `
   <div class="field-row">
     <div class="field"><label>اسم رب الأسرة <span>*</span></label><input id="ff-name" value="${f.name||""}"/></div>
-    <div class="field"><label>رقم الهاتف <span>*</span></label><input id="ff-phone" type="tel" value="${f.phone||""}"/></div>
+    <div class="field"><label>رقم الهاتف 1 <span>*</span></label><input id="ff-phone" type="tel" value="${f.phone||""}"/></div>
   </div>
   <div class="field-row">
+    <div class="field"><label>رقم الهاتف 2</label><input id="ff-phone2" type="tel" value="${f.phone2||""}"/></div>
     <div class="field"><label>البريد الإلكتروني</label><input id="ff-email" type="email" value="${f.email||""}"/></div>
+  </div>
+  <div class="field-row">
     <div class="field"><label>واتساب</label><input id="ff-wa" type="tel" value="${f.whatsapp||""}"/></div>
-  </div>
-  <div class="field-row">
     <div class="field"><label>ماسنجر</label><input id="ff-msg" value="${f.messenger||""}"/></div>
-    <div class="field"><label>تيليغرام</label><input id="ff-tg" value="${f.telegram||""}"/></div>
   </div>
   <div class="field-row">
+    <div class="field"><label>تيليغرام</label><input id="ff-tg" value="${f.telegram||""}"/></div>
     <div class="field"><label>اسم المصرف</label><input id="ff-bank" value="${f.bankName||""}"/></div>
-    <div class="field"><label>رقم الحساب</label><input id="ff-acc" value="${f.accountNo||""}"/></div>
   </div>
-  <div class="field"><label>العنوان</label><input id="ff-addr" value="${f.address||""}"/></div>
+  <div class="field-row">
+    <div class="field"><label>رقم الحساب</label><input id="ff-acc" value="${f.accountNo||""}"/></div>
+    <div class="field"><label>العنوان</label><input id="ff-addr" value="${f.address||""}"/></div>
+  </div>
   <div class="info-box info-amber" style="margin-bottom:14px">
     <div style="color:#fcd34d;font-weight:700;margin-bottom:10px;font-size:14px">📅 بيانات الاشتراك</div>
     <div class="field-row">
       <div class="field"><label>تاريخ بداية الاستحقاق</label><input id="ff-start" placeholder="2024-01" value="${f.startDate||db.settings.startDate||nowKey()}"/></div>
       <div class="field"><label>رصيد مرحّل سابق (د.ل)</label><input id="ff-carry" type="number" value="${f.carryOver||"0"}" step="0.001"/></div>
     </div>
+    ${isEdit?`<div class="field-row">
+      <div class="field"><label>رصيد معلق / دفعة مقدمة (د.ل)</label><input id="ff-credit" type="number" value="${f.credit||"0"}" step="0.001"/></div>
+    </div>`:""}
     <div style="color:#92a0b8;font-size:12px">الرصيد المرحّل: مبلغ سدّده المشترك في فترة سابقة قبل التسجيل في التطبيق</div>
     <div class="info-box info-blue" style="margin-top:10px;padding:8px 12px">
       <span style="color:#93c5fd;font-weight:700" id="monthly-preview">الاشتراك الشهري: — </span>
@@ -516,6 +605,7 @@ function famForm(existing){
     <div style="color:#c4b5fd;font-weight:700;margin-bottom:10px;font-size:14px">👨‍👩‍👧 الأبناء</div>
     <div style="display:flex;gap:8px;margin-bottom:10px">
       <input id="ff-child" placeholder="اسم الابن / البنت" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;color:#e8f0ff;outline:none"/>
+      <input id="ff-child-start" placeholder="YYYY-MM تاريخ البداية" style="width:120px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;color:#e8f0ff;outline:none" value="${nowKey()}"/>
       <button class="btn btn-purple btn-sm" onclick="addChild()">إضافة</button>
     </div>
     <div id="children-list">${renderChildrenList()}</div>
@@ -527,13 +617,21 @@ function famForm(existing){
 
 function renderChildrenList(){
   if(tempChildren.length===0) return `<div style="color:#4b5563;font-size:12px;text-align:center">لا يوجد أبناء</div>`;
-  return tempChildren.map((c,i)=>`<div class="child-item">👤 ${c.name}<button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="removeChild(${i})">حذف</button></div>`).join("");
+  return tempChildren.map((c,i)=>`<div class="child-item" style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <span>👤 ${c.name}</span>
+      <span class="badge badge-blue" style="font-size:10px">${c.startDate||"بدون تاريخ"}</span>
+    </div>
+    <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="removeChild(${i})">حذف</button>
+  </div>`).join("");
 }
 
 function addChild(){
   const inp = document.getElementById("ff-child");
   const n = inp.value.trim(); if(!n) return;
-  tempChildren.push({id:genId(),name:n}); inp.value="";
+  const sd = document.getElementById("ff-child-start").value.trim()||nowKey();
+  tempChildren.push({id:genId(),name:n,startDate:sd});
+  inp.value="";
   document.getElementById("children-list").innerHTML = renderChildrenList();
   updateMonthlyPreview();
 }
@@ -554,6 +652,7 @@ function collectFamForm(existing){
   return {
     id: existing?.id||genId(),
     name, phone,
+    phone2: document.getElementById("ff-phone2").value.trim(),
     email: document.getElementById("ff-email").value.trim(),
     whatsapp: document.getElementById("ff-wa").value.trim(),
     messenger: document.getElementById("ff-msg").value.trim(),
@@ -564,6 +663,7 @@ function collectFamForm(existing){
     notes: document.getElementById("ff-notes").value.trim(),
     startDate: document.getElementById("ff-start").value.trim()||nowKey(),
     carryOver: parseFloat(document.getElementById("ff-carry").value)||0,
+    credit: parseFloat((document.getElementById("ff-credit")||{value:0}).value)||0,
     children: JSON.parse(JSON.stringify(tempChildren)),
     payments: existing?.payments||{},
     createdAt: existing?.createdAt||new Date().toISOString()
@@ -572,7 +672,10 @@ function collectFamForm(existing){
 
 function saveFamNew(){
   const f = collectFamForm(null); if(!f) return;
+  const dup = db.families.find(x=>x.name===f.name && x.phone===f.phone);
+  if(dup){ showToast("يوجد أسرة بنفس الاسم والهاتف!",true); return; }
   db.families.push(f); save();
+  tempChildren = [];
   closeModal(); renderFamilies();
   showToast("تمت الإضافة بنجاح ✓");
 }
@@ -600,31 +703,94 @@ function toggleMonth(key){
   if(paySelected.includes(key)) paySelected=paySelected.filter(x=>x!==key);
   else paySelected.push(key);
   renderPayMonths();
-  document.getElementById("pay-total").textContent = paySelected.length>0?"الإجمالي: "+fmtMoney(paySelected.length*famFee(db.families.find(x=>x.id===payFamId))):"";
+  updatePaySummary();
 }
 
 function selectAllUnpaid(){
   const f = db.families.find(x=>x.id===payFamId); if(!f) return;
   const unpaid = famUnpaid(f);
-  paySelected = paySelected.length===unpaid.length?[]:JSON.parse(JSON.stringify(unpaid));
+  const dueMonths = famDueMonths(f);
+  const paidMonths = Object.keys(f.payments||{});
+  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
+  const allAvail = [...unpaid, ...nextMonths];
+  paySelected = paySelected.length===allAvail.length?[]:JSON.parse(JSON.stringify(allAvail));
   renderPayMonths();
-  document.getElementById("pay-total").textContent = paySelected.length>0?"الإجمالي: "+fmtMoney(paySelected.length*famFee(f)):"";
+  updatePaySummary();
+}
+
+function autoSelectMonths(){
+  const f = db.families.find(x=>x.id===payFamId); if(!f) return;
+  const amt = parseFloat(document.getElementById("pay-amount").value)||0;
+  if(amt<=0) return;
+  const dueMonths = famDueMonths(f);
+  const paidMonths = Object.keys(f.payments||{});
+  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
+  const allAvail = [...famUnpaid(f), ...nextMonths];
+  let remaining = amt;
+  paySelected = [];
+  for(const m of allAvail){
+    const fee = famFeeForMonth(f, m);
+    if(remaining >= fee){
+      paySelected.push(m);
+      remaining -= fee;
+    } else break;
+  }
+  renderPayMonths();
+  updatePaySummary();
+}
+
+function updatePaySummary(){
+  const f = db.families.find(x=>x.id===payFamId); if(!f) return;
+  const total = paySelected.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+  const paid = parseFloat(document.getElementById("pay-amount")?.value||0);
+  const credit = Number(f.credit||0);
+  document.getElementById("pay-total").textContent = paySelected.length>0?"الإجمالي: "+fmtMoney(total):"";
+  const rem = document.getElementById("pay-remainder");
+  if(total > 0 && paySelected.length>0){
+    const afterCredit = Math.max(0, total - credit);
+    if(paid >= afterCredit){
+      const over = paid - afterCredit;
+      rem.textContent = over>0?"💰 المتبقي كرصيد معلق: "+fmtMoney(over):"✓ مسدد بالكامل (بما في ذلك "+fmtMoney(Math.min(credit,total))+" من الرصيد المعلق)";
+      rem.style.color = "#86efac";
+    } else {
+      const need = afterCredit - paid;
+      rem.textContent = "⚠️ المبلغ المطلوب: "+fmtMoney(need)+" (الرصيد المعلق: "+fmtMoney(credit)+")";
+      rem.style.color = "#fca5a5";
+    }
+    rem.style.display="block";
+  } else { rem.style.display="none"; }
 }
 
 function renderPayMonths(){
   const f = db.families.find(x=>x.id===payFamId); if(!f) return;
   const unpaid = famUnpaid(f);
+  const dueMonths = famDueMonths(f);
+  const paidMonths = Object.keys(f.payments||{});
+  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
+  const allAvail = [...unpaid, ...nextMonths];
   const el = document.getElementById("pay-months");
   if(!el) return;
-  el.innerHTML = unpaid.map(k=>`<button class="month-btn ${paySelected.includes(k)?"selected":""}" onclick="toggleMonth('${k}')">${monthLabel(k)}</button>`).join("");
+  el.innerHTML = allAvail.map(k=>{
+    const isFuture = nextMonths.includes(k);
+    const fee = famFeeForMonth(f, k);
+    return `<button class="month-btn ${paySelected.includes(k)?"selected":""} ${!isFuture? "":"badge-blue"}" onclick="toggleMonth('${k}')">${monthLabel(k)}<br><small>${fmtMoney(fee)}</small></button>`;
+  }).join("");
 }
 
 function confirmPay(){
   if(!paySelected.length){ showToast("اختر شهراً واحداً على الأقل",true); return; }
   const f = db.families.find(x=>x.id===payFamId); if(!f) return;
-  const amount = paySelected.length*famFee(f);
+  const total = paySelected.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+  const credit = Number(f.credit||0);
+  const paidAmount = parseFloat(document.getElementById("pay-amount")?.value||0);
+  const effectivePaid = paidAmount + Math.min(credit, Math.max(0, total - paidAmount));
+  if(effectivePaid < total && paidAmount <= 0){ showToast("أدخل المبلغ المدفوع أو استخدم الرصيد المعلق",true); return; }
   if(!f.payments) f.payments={};
-  paySelected.forEach(m=>{ f.payments[m]={date:new Date().toISOString(),amount:famFee(f)}; });
+  paySelected.forEach(m=>{ f.payments[m]={date:new Date().toISOString(),amount:famFeeForMonth(f,m)}; });
+  const usedCredit = Math.max(0, total - paidAmount);
+  const newCredit = Math.max(0, credit - usedCredit);
+  const overPayment = Math.max(0, paidAmount - total);
+  f.credit = newCredit + overPayment;
   db.families = db.families.map(x=>x.id===f.id?f:x);
   save();
   // receipt
@@ -640,15 +806,17 @@ function confirmPay(){
     "عدد الأفراد : "+(1+(f.children||[]).length),
     "────────────────────────────",
     "الشهور المدفوعة:",
-    ...paySelected.sort().map(m=>"  • "+monthLabel(m)),
+    ...paySelected.sort().map(m=>"  • "+monthLabel(m)+" ("+fmtMoney(famFeeForMonth(f,m))+")"),
     "────────────────────────────",
-    "المبلغ المدفوع : "+fmtMoney(amount),
-    "عدد الشهور    : "+paySelected.length,
-    "الاشتراك/شهر  : "+fmtMoney(famFee(f)),
+    "المبلغ النقدي : "+fmtMoney(paidAmount),
+    usedCredit>0?("من الرصيد المعلق : "+fmtMoney(usedCredit)):"",
+    "────────────────────────────",
+    "المبلغ الإجمالي : "+fmtMoney(total),
+    overPayment>0?("الرصيد المعلق الجديد : "+fmtMoney(newCredit+overPayment)):"",
     "────────────────────────────",
     "شكراً على السداد ✓",
     "════════════════════════════",
-  ];
+  ].filter(Boolean);
   openModal("receipt", lines.join("\n"));
   showToast("تم تسجيل الدفع بنجاح ✓");
 }
@@ -729,7 +897,7 @@ function renderReports(){
   const months = MONTHS.map((name,i)=>{
     const key=yr+"-"+String(i+1).padStart(2,"0");
     const paidFams=db.families.filter(f=>f.payments&&f.payments[key]);
-    const dueFams=db.families.filter(f=>famDue(f).includes(key));
+    const dueFams=db.families.filter(f=>famDueMonths(f).includes(key));
     const rev=paidFams.reduce((s,f)=>s+Number(f.payments[key]?.amount||0),0);
     return {name,key,paid:paidFams.length,due:dueFams.length,rev};
   });
@@ -750,9 +918,10 @@ function renderReports(){
       <div class="section-title">حالة الأسر</div>
       ${db.families.map(f=>{
         const unpaid=famUnpaid(f); const bal=famBalance(f);
+        const dueAmt = unpaid.reduce((s,m)=>s+famFeeForMonth(f,m),0);
         return `<div class="stat-row">
           <span style="color:#c8d8f0">${f.name}</span>
-          <span style="color:${unpaid.length===0?"#86efac":"#fca5a5"}">${unpaid.length===0?"✓ محدّث":unpaid.length+" شهر متأخر"}</span>
+          <span style="color:${unpaid.length===0?"#86efac":"#fca5a5"}">${unpaid.length===0?"✓ محدّث":unpaid.length+" شهر ("+fmtMoney(dueAmt)+")"}</span>
         </div>`;
       }).join("")}
     </div>`;
@@ -790,6 +959,10 @@ function renderSettings(){
     <div class="section">
       <div class="section-title">☁️ التخزين السحابي (OneDrive)</div>
       ${onedriveSectionHtml()}
+    </div>
+    <div class="section">
+      <div class="section-title" style="color:#22c55e">🖥️ المزامنة مع نسخة ويندوز</div>
+      ${serverSyncSectionHtml()}
     </div>
     <div class="section">
       <div class="section-title">🔒 قفل التطبيق</div>
@@ -889,6 +1062,7 @@ function initConnectivity(){
   updateConnBadge();
   window.addEventListener("online", ()=>{ updateConnBadge(); scheduleAutoBackup(); });
   window.addEventListener("offline", updateConnBadge);
+  setInterval(checkServer, 15000);
 }
 function updateConnBadge(){
   const el = document.getElementById("conn-badge");
@@ -1044,6 +1218,86 @@ async function restoreFromOneDrive(){
 }
 
 // ============================================================
+// LOCAL NETWORK SYNC (Desktop ↔ Mobile)
+// ============================================================
+const SERVER_KEY = "sub_server_url";
+
+function getServerUrl(){ return localStorage.getItem(SERVER_KEY)||""; }
+function setServerUrl(u){ localStorage.setItem(SERVER_KEY, u); }
+
+async function checkServer(){
+  const url = getServerUrl();
+  const el = document.getElementById("sv-status");
+  const syncBtn = document.getElementById("sync-btn");
+  if(!url||!navigator.onLine){
+    if(el) el.textContent="⚪ غير متصل";
+    if(syncBtn) syncBtn.style.display="none";
+    return false;
+  }
+  try{
+    const res = await fetch(url+"/api/health", {signal:AbortSignal.timeout(3000)});
+    const ok = res.ok;
+    if(el){ el.textContent=ok?"🟢 متصل بالخادم":"🔴 خطأ في الاتصال"; el.style.color=ok?"#86efac":"#fca5a5"; }
+    if(syncBtn) syncBtn.style.display=ok?"inline-block":"none";
+    return ok;
+  }catch{
+    if(el){ el.textContent="⚪ الخادم غير متاح"; el.style.color="#6b7a99"; }
+    if(syncBtn) syncBtn.style.display="none";
+    return false;
+  }
+}
+
+async function pushToServer(){
+  const url = getServerUrl();
+  if(!url){ showToast("أدخل عنوان الخادم أولاً", true); return; }
+  if(!navigator.onLine){ showToast("لا يوجد اتصال بالإنترنت", true); return; }
+  try{
+    const res = await fetch(url+"/api/data", {
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(db)
+    });
+    if(res.ok){ showToast("✓ تم رفع البيانات إلى الخادم"); checkServer(); }
+    else showToast("فشل رفع البيانات", true);
+  }catch{ showToast("لا يمكن الاتصال بالخادم", true); }
+}
+
+async function pullFromServer(){
+  const url = getServerUrl();
+  if(!url){ showToast("أدخل عنوان الخادم أولاً", true); return; }
+  if(!navigator.onLine){ showToast("لا يوجد اتصال بالإنترنت", true); return; }
+  if(!confirm("سيتم استبدال جميع البيانات المحلية ببيانات الخادم. متابعة؟")) return;
+  try{
+    const res = await fetch(url+"/api/data");
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    if(data){ db=data; save(); renderPage(currentPage); showToast("✓ تم سحب البيانات من الخادم"); checkServer(); }
+    else showToast("لا توجد بيانات على الخادم بعد", true);
+  }catch{ showToast("لا يمكن الاتصال بالخادم", true); }
+}
+
+function serverSyncSectionHtml(){
+  const url = getServerUrl();
+  return `
+    <div style="color:#6b7a99;font-size:12px;margin-bottom:12px">اربط التطبيق بخادم ويندوز المحلي للمزامنة اللحظية والنسخ الاحتياطي</div>
+    <div class="field"><label>عنوان الخادم (مثال: http://192.168.1.100:3456)</label>
+      <input id="sv-url" placeholder="http://192.168.1.100:3456" value="${url}" onchange="saveServerUrl()"/>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-green" onclick="saveServerUrl();pushToServer()">📤 رفع إلى الخادم</button>
+      <button class="btn btn-blue" onclick="saveServerUrl();pullFromServer()">📥 سحب من الخادم</button>
+    </div>
+    <div style="text-align:center;margin-top:8px"><span id="sv-status" style="color:#6b7a99;font-size:12px">${url?"—":"⚪ غير مهيّأ"}</span></div>
+    <button class="btn btn-outline btn-sm" style="width:auto;margin:8px auto 0;display:block" onclick="checkServer()">🔍 اختبار الاتصال</button>
+  `;
+}
+
+function saveServerUrl(){
+  const el = document.getElementById("sv-url");
+  if(el) setServerUrl(el.value.trim());
+}
+
+// ============================================================
 // MODALS
 // ============================================================
 function openModal(type, data){
@@ -1052,32 +1306,43 @@ function openModal(type, data){
   const body  = document.getElementById("modal-body");
   if(type==="addFamily"){
     title.textContent="➕ إضافة أسرة جديدة";
+    tempChildren = [];
     body.innerHTML = famForm(null);
     updateMonthlyPreview();
   } else if(type==="payment"){
     const f = data;
     const unpaid = famUnpaid(f); const bal = famBalance(f);
+    const dueMonths = famDueMonths(f);
+    const paidMonths = Object.keys(f.payments||{});
+    const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
+    const allAvail = [...unpaid, ...nextMonths];
     title.textContent="💳 تسجيل الدفع";
     body.innerHTML = `
       <div class="info-box info-blue" style="margin-bottom:14px">
         <div style="color:#93c5fd;font-weight:700;font-size:15px">${f.name}</div>
         <div style="color:#8899bb;font-size:12px">${1+(f.children||[]).length} أفراد | اشتراك شهري: ${fmtMoney(famFee(f))}</div>
         ${Number(f.carryOver||0)>0?`<div style="color:#86efac;font-size:12px;margin-top:4px">✓ رصيد مرحّل: ${fmtMoney(f.carryOver)}</div>`:""}
+        ${Number(f.credit||0)>0?`<div style="color:#86efac;font-size:12px;margin-top:4px">💰 رصيد معلق: ${fmtMoney(f.credit)}</div>`:""}
         <div style="color:${bal>=0?"#86efac":"#fca5a5"};font-size:13px;font-weight:700;margin-top:6px">رصيد الحساب: ${fmtMoney(bal)} ${bal>=0?"✓":"⚠️"}</div>
       </div>
+      <div class="field-row" style="margin-bottom:12px">
+        <div class="field"><label>المبلغ المدفوع (د.ل)</label><input id="pay-amount" type="number" step="0.001" oninput="autoSelectMonths()" placeholder="أدخل المبلغ"/></div>
+        <div class="field"><label>ملاحظات</label><input id="pay-note" placeholder="اختياري"/></div>
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span style="color:#e8d5a3;font-size:13px;font-weight:700">الشهور غير المدفوعة (${unpaid.length})</span>
+        <span style="color:#e8d5a3;font-size:13px;font-weight:700">اختر الشهور (${allAvail.length})</span>
         <button class="btn btn-sm" style="background:rgba(99,102,241,.15);color:#a5b4fc;border:1px solid rgba(99,102,241,.3)" onclick="selectAllUnpaid()">تحديد الكل</button>
       </div>
-      ${unpaid.length===0?`<div style="text-align:center;color:#22c55e;padding:20px;font-weight:700">✓ جميع الشهور مدفوعة!</div>`:`<div class="month-grid" id="pay-months"></div>`}
+      ${allAvail.length===0?`<div style="text-align:center;color:#22c55e;padding:20px;font-weight:700">✓ جميع الشهور مدفوعة!</div>`:`<div class="month-grid" id="pay-months"></div>`}
       ${Object.keys(f.payments||{}).length>0?`<div style="margin-bottom:14px">
         <div style="color:#6b7a99;font-size:12px;margin-bottom:6px">✓ مدفوع (${Object.keys(f.payments).length} شهر)</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">${Object.keys(f.payments).sort().map(k=>`<span class="badge badge-green">${monthLabel(k)}</span>`).join("")}</div>
       </div>`:""}
-      <div id="pay-total" style="text-align:center;color:#e8d5a3;font-weight:800;font-size:16px;background:rgba(232,213,163,.1);border-radius:10px;padding:10px;margin-bottom:12px;display:${unpaid.length>0?"block":"none"}"></div>
-      ${unpaid.length>0?`<button class="btn btn-green" onclick="confirmPay()">✓ تأكيد الدفع وإصدار الإيصال</button>`:""}
+      <div id="pay-total" style="text-align:center;color:#e8d5a3;font-weight:800;font-size:16px;background:rgba(232,213,163,.1);border-radius:10px;padding:10px;margin-bottom:12px;display:${allAvail.length>0?"block":"none"}"></div>
+      <div id="pay-remainder" style="text-align:center;color:#86efac;font-weight:700;font-size:14px;margin-bottom:8px"></div>
+      ${allAvail.length>0?`<button class="btn btn-green" onclick="confirmPay()">✓ تأكيد الدفع وإصدار الإيصال</button>`:""}
     `;
-    if(unpaid.length>0) renderPayMonths();
+    if(allAvail.length>0) renderPayMonths();
   } else if(type==="expense"){
     title.textContent="💸 إضافة مصروف";
     body.innerHTML = `
