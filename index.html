@@ -709,11 +709,16 @@ function toggleMonth(key){
 function selectAllUnpaid(){
   const f = db.families.find(x=>x.id===payFamId); if(!f) return;
   const unpaid = famUnpaid(f);
+  paySelected = paySelected.length===unpaid.length && unpaid.every(m=>paySelected.includes(m))?[]:JSON.parse(JSON.stringify(unpaid));
+  renderPayMonths();
+  updatePaySummary();
+}
+function selectAllFuture(){
+  const f = db.families.find(x=>x.id===payFamId); if(!f) return;
   const dueMonths = famDueMonths(f);
   const paidMonths = Object.keys(f.payments||{});
   const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
-  const allAvail = [...unpaid, ...nextMonths];
-  paySelected = paySelected.length===allAvail.length?[]:JSON.parse(JSON.stringify(allAvail));
+  paySelected = paySelected.length===nextMonths.length && nextMonths.every(m=>paySelected.includes(m))?[]:JSON.parse(JSON.stringify(nextMonths));
   renderPayMonths();
   updatePaySummary();
 }
@@ -767,14 +772,27 @@ function renderPayMonths(){
   const dueMonths = famDueMonths(f);
   const paidMonths = Object.keys(f.payments||{});
   const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
-  const allAvail = [...unpaid, ...nextMonths];
   const el = document.getElementById("pay-months");
   if(!el) return;
-  el.innerHTML = allAvail.map(k=>{
-    const isFuture = nextMonths.includes(k);
-    const fee = famFeeForMonth(f, k);
-    return `<button class="month-btn ${paySelected.includes(k)?"selected":""} ${!isFuture? "":"badge-blue"}" onclick="toggleMonth('${k}')">${monthLabel(k)}<br><small>${fmtMoney(fee)}</small></button>`;
-  }).join("");
+  let html = "";
+  if(unpaid.length>0){
+    html += `<div style="color:#fca5a5;font-size:12px;font-weight:700;margin:8px 0 6px">⚠️ شهور مستحقة (${unpaid.length})</div>
+      <div class="month-grid">${unpaid.map(k=>{
+        const fee = famFeeForMonth(f, k);
+        const sel = paySelected.includes(k);
+        return `<button class="month-btn" style="${sel?"border-color:#3b82f6;background:rgba(59,130,246,.2);color:#93c5fd":"border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:#fca5a5"}" onclick="toggleMonth('${k}')">${monthLabel(k)}<br><small>${fmtMoney(fee)}</small></button>`;
+      }).join("")}</div>`;
+  }
+  if(nextMonths.length>0){
+    html += `<div style="color:#93c5fd;font-size:12px;font-weight:700;margin:14px 0 6px">🔵 دفع مقدماً (${nextMonths.length}) — اختياري</div>
+      <div class="month-grid">${nextMonths.map(k=>{
+        const fee = famFeeForMonth(f, k);
+        const sel = paySelected.includes(k);
+        return `<button class="month-btn" style="${sel?"border-color:#3b82f6;background:rgba(59,130,246,.2);color:#93c5fd":"border-color:rgba(59,130,246,.2);background:rgba(59,130,246,.05);color:#6b8fc0"}" onclick="toggleMonth('${k}')">${monthLabel(k)}<br><small>${fmtMoney(fee)}</small></button>`;
+      }).join("")}</div>`;
+  }
+  if(!unpaid.length && !nextMonths.length) html = '<div style="text-align:center;color:#22c55e;padding:20px;font-weight:700">✓ جميع الشهور مدفوعة!</div>';
+  el.innerHTML = html;
 }
 
 function confirmPay(){
@@ -1376,10 +1394,13 @@ function openModal(type, data){
         <div class="field"><label>ملاحظات</label><input id="pay-note" placeholder="اختياري"/></div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <span style="color:#e8d5a3;font-size:13px;font-weight:700">اختر الشهور (${allAvail.length})</span>
-        <button class="btn btn-sm" style="background:rgba(99,102,241,.15);color:#a5b4fc;border:1px solid rgba(99,102,241,.3)" onclick="selectAllUnpaid()">تحديد الكل</button>
+        <span style="color:#e8d5a3;font-size:13px;font-weight:700">الشهور المتاحة</span>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="selectAllUnpaid()">تحديد المتأخرة</button>
+          <button class="btn btn-sm" style="background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)" onclick="selectAllFuture()">تحديد المستقبل</button>
+        </div>
       </div>
-      ${allAvail.length===0?`<div style="text-align:center;color:#22c55e;padding:20px;font-weight:700">✓ جميع الشهور مدفوعة!</div>`:`<div class="month-grid" id="pay-months"></div>`}
+      ${allAvail.length===0?`<div style="text-align:center;color:#22c55e;padding:20px;font-weight:700">✓ جميع الشهور مدفوعة!</div>`:`<div id="pay-months"></div>`}
       ${Object.keys(f.payments||{}).length>0?`<div style="margin-bottom:14px">
         <div style="color:#6b7a99;font-size:12px;margin-bottom:6px">✓ مدفوع (${Object.keys(f.payments).length} شهر)</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">${Object.keys(f.payments).sort().map(k=>`<span class="badge badge-green">${monthLabel(k)}</span>`).join("")}</div>
