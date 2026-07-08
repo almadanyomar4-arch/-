@@ -682,6 +682,17 @@ function saveFamNew(){
 function saveFamEdit(id){
   const existing = db.families.find(x=>x.id===id);
   const f = collectFamForm(existing); if(!f) return;
+  const totalPaid = Object.values(existing.payments||{}).reduce((s,p)=>s+Number(p.amount||0),0);
+  f.payments = {};
+  let remaining = totalPaid;
+  const dueMonths = famDueMonths(f);
+  for(const m of dueMonths){
+    const fee = famFeeForMonth(f, m);
+    if(remaining >= fee){ f.payments[m] = {date:new Date().toISOString(),amount:fee}; remaining -= fee; }
+    else if(remaining > 0){ f.payments[m] = {date:new Date().toISOString(),amount:remaining}; remaining = 0; break; }
+    else break;
+  }
+  if(remaining > 0) f.credit = (f.credit||0) + remaining;
   db.families = db.families.map(x=>x.id===id?f:x); save();
   showFamDetail(id); showToast("تم التحديث ✓");
 }
