@@ -1,0 +1,40 @@
+{
+  "name": "sanduq-subscriptions",
+  "version": "1.4.0",
+  "description": "صندوق الاشتراكات - تطبيق إدارة الاشتراكات الشهرية",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "server": "node server.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.sanduq.subscriptions",
+    "productName": "صندوق الاشتراكات",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "main.js",
+      "preload.js",
+      "server.js",
+      "manifest.json",
+      "sw.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.png"
+    }
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  }
+}

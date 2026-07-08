@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#0d1117"/>
+<title>صندوق الاشتراكات</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#0d1117;color:#e8f0ff;direction:rtl;max-width:480px;margin:0 auto;min-height:100vh;padding-bottom:76px;font-size:14px}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}
+input,select,button,textarea{font-family:inherit;font-size:14px}
+input::placeholder{color:#374151}
+button{cursor:pointer}
+.page{display:none;padding:16px;animation:fadeIn .2s ease}
+.page.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* NAV */
+#nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:rgba(13,17,23,.98);border-top:1px solid rgba(255,255,255,.08);display:flex;z-index:200}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;padding:8px 4px 10px;color:#374151;transition:color .2s}
+.nav-btn.active{color:#e8d5a3}
+.nav-btn span{font-size:9px;font-weight:700}
+.nav-dot{width:18px;height:2px;background:#e8d5a3;border-radius:1px;display:none}
+.nav-btn.active .nav-dot{display:block}
+/* HEADER */
+#header{background:rgba(13,17,23,.97);padding:12px 16px;position:sticky;top:0;z-index:100;border-bottom:1px solid rgba(255,255,255,.07);display:flex;justify-content:space-between;align-items:center}
+#header h1{color:#e8d5a3;font-size:15px;font-weight:800}
+#balance-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px}
+/* CARDS GRID */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.card{border-radius:14px;padding:13px 14px;position:relative;overflow:hidden}
+.card .card-label{color:#6b7a99;font-size:11px;margin-bottom:3px}
+.card .card-val{font-size:15px;font-weight:800;line-height:1.2}
+.card .card-sub{font-size:11px;margin-top:4px;opacity:.85}
+/* BUTTONS */
+.btn{border:none;border-radius:12px;padding:12px;font-weight:700;font-size:14px;width:100%;margin-bottom:8px}
+.btn-blue{background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff}
+.btn-green{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff}
+.btn-red{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff}
+.btn-purple{background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff}
+.btn-amber{background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff}
+.btn-outline{background:transparent;color:#6b7a99;border:1px solid rgba(255,255,255,.15)}
+.btn-sm{padding:6px 12px;font-size:12px;border-radius:8px;width:auto;margin:0}
+.btn-row{display:flex;gap:8px;margin-bottom:8px}
+.btn-row .btn{margin-bottom:0}
+/* FORMS */
+.field{margin-bottom:12px}
+.field label{display:block;color:#8899bb;font-size:12px;margin-bottom:5px}
+.field label span{color:#f87171}
+.field input,.field select,.field textarea{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:9px 12px;color:#e8f0ff;outline:none}
+.field textarea{resize:vertical;min-height:70px}
+.field select{background-color:#1a2040}
+.field-row{display:flex;gap:8px}
+.field-row .field{flex:1}
+/* MODAL */
+#modal-overlay{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.7);align-items:flex-end;justify-content:center}
+#modal-overlay.open{display:flex}
+#modal-box{background:#161b2e;border-radius:22px 22px 0 0;width:100%;max-width:500px;max-height:88vh;overflow-y:auto;padding:20px;animation:slideUp .28s ease}
+@keyframes slideUp{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}
+#modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+#modal-title{color:#e8d5a3;font-weight:800;font-size:17px}
+#modal-close{background:rgba(255,255,255,.1);border:none;color:#aaa;padding:5px 10px;border-radius:8px;font-size:16px}
+/* ITEMS */
+.item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:14px;padding:13px 15px;margin-bottom:9px}
+.item.late{border-color:rgba(239,68,68,.3)}
+.item-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.item-name{color:#e8f0ff;font-weight:700;font-size:14px}
+.item-sub{color:#6b7a99;font-size:11px;margin-top:2px}
+.badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;display:inline-block}
+.badge-green{background:rgba(34,197,94,.15);color:#86efac;border:1px solid rgba(34,197,94,.3)}
+.badge-red{background:rgba(239,68,68,.15);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+.badge-blue{background:rgba(59,130,246,.15);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+.badge-amber{background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
+/* TOAST */
+#toast{position:fixed;top:66px;left:50%;transform:translateX(-50%);z-index:9999;padding:10px 22px;border-radius:22px;font-size:13px;font-weight:700;white-space:nowrap;box-shadow:0 8px 28px rgba(0,0,0,.5);display:none;color:#fff}
+/* MONTH GRID */
+.month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.month-btn{padding:9px 4px;border-radius:10px;border:2px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#a0b0cc;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;text-align:center}
+.month-btn.selected{border-color:#3b82f6;background:rgba(59,130,246,.2);color:#93c5fd}
+.month-btn.paid{border-color:#22c55e;background:rgba(34,197,94,.15);color:#86efac;cursor:default}
+/* SECTION */
+.section{background:rgba(255,255,255,.04);border-radius:16px;padding:14px;margin-bottom:14px}
+.section-title{color:#e8d5a3;font-weight:700;font-size:14px;margin-bottom:12px}
+/* SEARCH */
+#search-bar{width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:9px 14px;color:#e8f0ff;outline:none;margin-bottom:12px}
+/* INFO BOX */
+.info-box{border-radius:12px;padding:12px;margin-bottom:12px}
+.info-amber{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2)}
+.info-blue{background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.2)}
+.info-red{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2)}
+.info-green{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2)}
+.info-purple{background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.2)}
+/* BACK BTN */
+.back-btn{background:rgba(255,255,255,.07);border:none;color:#93c5fd;padding:7px 14px;border-radius:10px;margin-bottom:14px;font-family:inherit;font-size:13px}
+/* RECEIPT */
+#receipt-pre{color:#86efac;font-size:11px;line-height:1.7;font-family:'Courier New',monospace;white-space:pre-wrap;background:rgba(0,0,0,.35);padding:14px;border-radius:10px;direction:ltr;text-align:left}
+/* PROGRESS BAR */
+.prog-wrap{background:rgba(255,255,255,.06);border-radius:4px;height:5px;overflow:hidden;margin-top:4px}
+.prog-bar{background:linear-gradient(90deg,#3b82f6,#22c55e);height:100%;border-radius:4px;transition:width .3s}
+/* TABS */
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tab{flex:1;background:transparent;border:1px solid rgba(255,255,255,.09);border-radius:10px;color:#4b5563;padding:8px 4px;font-size:12px;font-weight:700;font-family:inherit}
+.tab.active{background:rgba(255,255,255,.12);color:#e8e8f0}
+/* STAT ROW */
+.stat-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
+.stat-row span:first-child{color:#a0b0cc}
+.stat-row span:last-child{font-weight:700}
+/* CHILDREN LIST */
+.child-item{display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,.04);border-radius:8px;padding:7px 12px;margin-bottom:6px;font-size:13px;color:#c8d8f0}
+/* OFFLINE BADGE */
+.offline-badge{background:rgba(34,197,94,.12);color:#86efac;font-size:10px;font-weight:700;padding:3px 8px;border-radius:12px;border:1px solid rgba(34,197,94,.25)}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <h1 id="org-name-hdr">صندوق الاشتراكات</h1>
+  <div style="display:flex;align-items:center;gap:8px">
+    <span class="offline-badge">بدون إنترنت ✓</span>
+    <span id="balance-badge" class="badge-green">0.000 د.ل</span>
+  </div>
+</div>
+
+<!-- PAGES -->
+<div id="page-home" class="page active">
+  <div style="margin-bottom:18px">
+    <div style="color:#e8d5a3;font-size:20px;font-weight:800" id="home-org"></div>
+    <div style="color:#4b5563;font-size:12px" id="home-date"></div>
+  </div>
+  <div class="cards" id="home-cards"></div>
+  <div id="late-alert"></div>
+  <div class="btn-row">
+    <button class="btn btn-blue" onclick="openModal('addFamily')">👨‍👩‍👧 أسرة جديدة</button>
+    <button class="btn btn-red" onclick="openModal('expense')">💸 مصروف</button>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-purple" onclick="openModal('deposit')">💰 إيداع</button>
+    <button class="btn btn-outline" onclick="navTo('families')">📋 قائمة الأسر</button>
+  </div>
+</div>
+
+<div id="page-families" class="page">
+  <div id="fam-list-view">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="color:#e8d5a3;font-weight:800;font-size:18px" id="fam-count">الأسر</div>
+      <button class="btn btn-blue btn-sm" onclick="openModal('addFamily')">+ إضافة</button>
+    </div>
+    <input id="search-bar" placeholder="🔍 بحث بالاسم أو الهاتف..." oninput="renderFamilies()"/>
+    <div id="fam-list"></div>
+  </div>
+  <div id="fam-detail-view" style="display:none"></div>
+  <div id="fam-edit-view" style="display:none"></div>
+</div>
+
+<div id="page-finance" class="page">
+  <div style="color:#e8d5a3;font-weight:800;font-size:18px;margin-bottom:14px">💰 الحسابات المالية</div>
+  <div id="finance-summary-card"></div>
+  <div class="tabs">
+    <button class="tab active" id="tab-exp" onclick="switchTab('exp')">💸 المصروفات</button>
+    <button class="tab" id="tab-dep" onclick="switchTab('dep')">💰 الإيداعات</button>
+    <button class="tab" id="tab-sum" onclick="switchTab('sum')">📊 الملخص</button>
+  </div>
+  <div id="finance-content"></div>
+</div>
+
+<div id="page-reports" class="page">
+  <div style="color:#e8d5a3;font-weight:800;font-size:18px;margin-bottom:14px">📈 التقارير</div>
+  <div id="reports-content"></div>
+</div>
+
+<div id="page-settings" class="page">
+  <div style="color:#e8d5a3;font-weight:800;font-size:18px;margin-bottom:14px">⚙️ الإعدادات</div>
+  <div id="settings-content"></div>
+</div>
+
+<!-- BOTTOM NAV -->
+<div id="nav">
+  <button class="nav-btn active" id="nav-home" onclick="navTo('home')"><span style="font-size:18px">🏠</span><span>الرئيسية</span><div class="nav-dot"></div></button>
+  <button class="nav-btn" id="nav-families" onclick="navTo('families')"><span style="font-size:18px">👥</span><span>الأسر</span><div class="nav-dot"></div></button>
+  <button class="nav-btn" id="nav-finance" onclick="navTo('finance')"><span style="font-size:18px">💰</span><span>المالية</span><div class="nav-dot"></div></button>
+  <button class="nav-btn" id="nav-reports" onclick="navTo('reports')"><span style="font-size:18px">📈</span><span>التقارير</span><div class="nav-dot"></div></button>
+  <button class="nav-btn" id="nav-settings" onclick="navTo('settings')"><span style="font-size:18px">⚙️</span><span>الإعدادات</span><div class="nav-dot"></div></button>
+</div>
+
+<!-- MODAL -->
+<div id="modal-overlay" onclick="closeModal()">
+  <div id="modal-box" onclick="event.stopPropagation()">
+    <div id="modal-header">
+      <span id="modal-title"></span>
+      <button id="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ============================================================
+// DATA
+// ============================================================
+const STORE = "sub_v4";
+const FEE = 10;
+const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
+
+function blankDb(){
+  return {
+    families:[],
+    expenses:[],
+    deposits:[],
+    carryOver:0,
+    settings:{orgName:"صندوق الاشتراكات",startDate:nowKey(),adminPhone:"",adminEmail:""}
+  };
+}
+
+let db = load();
+
+function load(){
+  try{ const d=localStorage.getItem(STORE); return d?JSON.parse(d):blankDb(); }catch{ return blankDb(); }
+}
+function save(){ localStorage.setItem(STORE, JSON.stringify(db)); }
+function genId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function nowKey(){ const n=new Date(); return n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0"); }
+function fmtMoney(n){ return Number(n||0).toFixed(3)+" د.ل"; }
+function fmtDate(d){ return d?new Date(d).toLocaleDateString("ar"):"—"; }
+function monthLabel(key){ const [y,m]=key.split("-"); return MONTHS[parseInt(m)-1]+" "+y; }
+function monthsSince(start){
+  if(!start)return[];
+  const s=new Date(start+"-01"), e=new Date(); e.setDate(1);
+  const keys=[]; const c=new Date(s);
+  while(c<=e){ keys.push(c.getFullYear()+"-"+String(c.getMonth()+1).padStart(2,"0")); c.setMonth(c.getMonth()+1); }
+  return keys;
+}
+function famFee(f){ return FEE*(1+(f.children||[]).length); }
+function famDue(f){ return monthsSince(f.startDate||f.createdAt?.slice(0,7)); }
+function famPaid(f){ return Object.keys(f.payments||{}); }
+function famUnpaid(f){ return famDue(f).filter(k=>!famPaid(f).includes(k)); }
+function famTotalDue(f){ return famDue(f).length*famFee(f); }
+function famTotalPaid(f){ return Object.values(f.payments||{}).reduce((s,p)=>s+Number(p.amount||0),0); }
+function famBalance(f){ return famTotalPaid(f)+Number(f.carryOver||0)-famTotalDue(f); }
+
+// ============================================================
+// DERIVED TOTALS
+// ============================================================
+function totals(){
+  const allPaid = db.families.reduce((s,f)=>s+famTotalPaid(f),0);
+  const allCarry = db.families.reduce((s,f)=>s+Number(f.carryOver||0),0);
+  const allDue   = db.families.reduce((s,f)=>s+famTotalDue(f),0);
+  const expenses = db.expenses.reduce((s,e)=>s+Number(e.amount||0),0);
+  const deposits = db.deposits.reduce((s,d)=>s+Number(d.amount||0),0);
+  const balance  = Number(db.carryOver||0)+allCarry+allPaid+deposits-expenses;
+  const members  = db.families.reduce((s,f)=>s+1+(f.children||[]).length,0);
+  return {allPaid,allCarry,allDue,expenses,deposits,balance,members};
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+let currentPage = "home";
+function navTo(page){
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
+  document.getElementById("page-"+page).classList.add("active");
+  document.getElementById("nav-"+page).classList.add("active");
+  currentPage = page;
+  // reset family sub-views
+  if(page==="families"){ showFamList(); }
+  renderPage(page);
+}
+
+function renderPage(page){
+  if(page==="home")renderHome();
+  else if(page==="families")renderFamilies();
+  else if(page==="finance")renderFinance();
+  else if(page==="reports")renderReports();
+  else if(page==="settings")renderSettings();
+}
+
+// ============================================================
+// HOME
+// ============================================================
+function renderHome(){
+  const t = totals();
+  document.getElementById("home-org").textContent = db.settings.orgName;
+  document.getElementById("home-date").textContent = new Date().toLocaleDateString("ar",{weekday:"long",year:"numeric",month:"long",day:"numeric"})+" | يعمل بدون إنترنت ✓";
+  document.getElementById("org-name-hdr").textContent = db.settings.orgName;
+
+  const bal = t.balance;
+  const bb = document.getElementById("balance-badge");
+  bb.textContent = fmtMoney(bal);
+  bb.className = "badge "+(bal>=0?"badge-green":"badge-red");
+
+  document.getElementById("home-cards").innerHTML = `
+    ${card("الأسر المسجلة","👥","#3b82f6",db.families.length,"")}
+    ${card("إجمالي الأفراد","👤","#8b5cf6",t.members,"")}
+    ${card("المحصّل","✅","#22c55e",fmtMoney(t.allPaid),"من "+fmtMoney(t.allDue))}
+    ${card("الرصيد المتاح","💰","#"+(bal>=0?"22c55e":"ef4444"),fmtMoney(bal),bal>=0?"✓ كافٍ":"⚠️ عجز")}
+    ${card("المصروفات","💸","#ef4444",fmtMoney(t.expenses),"")}
+    ${card("الرصيد المرحّل","🔄","#f59e0b",fmtMoney(Number(db.carryOver||0)+t.allCarry),"")}
+  `;
+
+  const late = db.families.filter(f=>famUnpaid(f).length>0);
+  const la = document.getElementById("late-alert");
+  if(late.length>0){
+    la.innerHTML = `<div class="info-box info-red" style="margin-bottom:14px">
+      <div style="color:#fca5a5;font-weight:700;margin-bottom:8px">⚠️ ${late.length} أسرة لديها شهور متأخرة</div>
+      ${late.slice(0,5).map(f=>`<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px">
+        <span style="color:#e0e8ff">${f.name}</span>
+        <span style="color:#fca5a5">${famUnpaid(f).length} شهر | ${fmtMoney(famUnpaid(f).length*famFee(f))}</span>
+      </div>`).join("")}
+      ${late.length>5?`<div style="color:#6b7a99;font-size:12px;margin-top:8px">+${late.length-5} أخرى...</div>`:""}
+    </div>`;
+  } else { la.innerHTML=""; }
+}
+
+function card(label,ico,col,val,sub){
+  return `<div class="card" style="background:linear-gradient(135deg,${col}20,${col}08);border:1px solid ${col}30">
+    <div style="position:absolute;top:8px;right:8px;font-size:28px;opacity:.2">${ico}</div>
+    <div class="card-label">${label}</div>
+    <div class="card-val" style="color:#f0f6ff">${val}</div>
+    ${sub?`<div class="card-sub" style="color:${col}">${sub}</div>`:""}
+  </div>`;
+}
+
+// ============================================================
+// FAMILIES
+// ============================================================
+function showFamList(){
+  document.getElementById("fam-list-view").style.display="";
+  document.getElementById("fam-detail-view").style.display="none";
+  document.getElementById("fam-edit-view").style.display="none";
+}
+function showFamDetail(id){
+  document.getElementById("fam-list-view").style.display="none";
+  document.getElementById("fam-detail-view").style.display="";
+  document.getElementById("fam-edit-view").style.display="none";
+  renderFamDetail(id);
+}
+function showFamEdit(id){
+  document.getElementById("fam-list-view").style.display="none";
+  document.getElementById("fam-detail-view").style.display="none";
+  document.getElementById("fam-edit-view").style.display="";
+  renderFamEdit(id);
+}
+
+function renderFamilies(){
+  const q = (document.getElementById("search-bar")||{}).value||"";
+  const all = db.families.filter(f=>f.name.includes(q)||f.phone?.includes(q)||(f.children||[]).some(c=>c.name.includes(q)));
+  document.getElementById("fam-count").textContent = `الأسر (${db.families.length})`;
+  const el = document.getElementById("fam-list");
+  if(!el) return;
+  if(all.length===0){ el.innerHTML=`<div style="text-align:center;color:#4b5563;padding:40px 0">لا توجد نتائج</div>`; return; }
+  el.innerHTML = all.map(f=>{
+    const unpaid=famUnpaid(f); const bal=famBalance(f);
+    return `<div class="item ${unpaid.length>0?'late':''}" onclick="showFamDetail('${f.id}')">
+      <div class="item-top">
+        <div>
+          <div class="item-name">${f.name}</div>
+          <div class="item-sub">${f.phone||""} • ${1+(f.children||[]).length} أفراد${f.startDate?" • من "+monthLabel(f.startDate):""}</div>
+        </div>
+        <div style="text-align:left">
+          <span class="badge ${unpaid.length===0?'badge-green':'badge-red'}">${unpaid.length===0?"✓ محدّث":"⚠ "+unpaid.length+" شهر"}</span>
+          <div style="color:${bal>=0?"#86efac":"#fca5a5"};font-size:11px;margin-top:4px;font-weight:600">${fmtMoney(Math.abs(bal))} ${bal>=0?"✓":"↑"}</div>
+        </div>
+      </div>
+      <div class="btn-row" onclick="event.stopPropagation()">
+        <button class="btn btn-green btn-sm" onclick="openPayModal('${f.id}')">💳 دفع</button>
+        <button class="btn btn-blue btn-sm" style="background:rgba(59,130,246,.15);color:#93c5fd;border:1px solid rgba(59,130,246,.3)" onclick="showFamDetail('${f.id}')">📋 تفاصيل</button>
+        <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="delFamily('${f.id}')">🗑</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderFamDetail(id){
+  const f = db.families.find(x=>x.id===id);
+  if(!f){ showFamList(); return; }
+  const unpaid=famUnpaid(f); const paid=famPaid(f); const bal=famBalance(f);
+  document.getElementById("fam-detail-view").innerHTML = `
+    <button class="back-btn" onclick="showFamList()">◄ رجوع</button>
+    <div style="background:linear-gradient(135deg,rgba(59,130,246,.2),rgba(99,102,241,.1));border-radius:18px;padding:18px;margin-bottom:14px">
+      <div style="color:#e8d5a3;font-size:19px;font-weight:800">${f.name}</div>
+      <div style="color:#8899bb;font-size:13px;margin-top:4px">${f.phone||""}${f.email?" • "+f.email:""}</div>
+      ${f.startDate?`<div style="color:#fcd34d;font-size:12px;margin-top:4px">📅 بداية الاستحقاق: ${monthLabel(f.startDate)}</div>`:""}
+    </div>
+    <div class="cards" style="margin-bottom:14px">
+      ${card("الأفراد","👤","#3b82f6",1+(f.children||[]).length,"")}
+      ${card("اشتراك شهري","💵","#22c55e",fmtMoney(famFee(f)),"")}
+      ${card("شهور مدفوعة","✅","#8b5cf6",paid.length+" / "+famDue(f).length+" شهر","")}
+      ${card("رصيد الحساب","💰","#"+(bal>=0?"22c55e":"ef4444"),fmtMoney(Math.abs(bal)),bal>=0?"✓ لا متأخرات":"⚠️ متأخر")}
+    </div>
+    ${Number(f.carryOver||0)>0?`<div class="info-box info-amber" style="margin-bottom:12px">
+      <div style="color:#fcd34d;font-weight:700;font-size:13px">🔄 رصيد مرحّل سابق</div>
+      <div style="color:#fbbf24;font-size:16px;font-weight:800;margin-top:4px">${fmtMoney(f.carryOver)}</div>
+    </div>`:""}
+    ${(f.children||[]).length>0?`<div class="section"><div class="section-title">الأبناء</div>
+      ${f.children.map(c=>`<div class="child-item">👤 ${c.name}</div>`).join("")}
+    </div>`:""}
+    ${(f.whatsapp||f.messenger||f.telegram||f.bankName)?`<div class="section"><div class="section-title">معلومات التواصل</div>
+      ${f.whatsapp?`<div style="color:#86efac;font-size:13px;padding:4px 0">📱 واتساب: ${f.whatsapp}</div>`:""}
+      ${f.messenger?`<div style="color:#93c5fd;font-size:13px;padding:4px 0">💬 ماسنجر: ${f.messenger}</div>`:""}
+      ${f.telegram?`<div style="color:#c4b5fd;font-size:13px;padding:4px 0">✈️ تيليغرام: ${f.telegram}</div>`:""}
+      ${f.bankName?`<div style="color:#fcd34d;font-size:13px;padding:4px 0">🏦 ${f.bankName}: ${f.accountNo||""}</div>`:""}
+    </div>`:""}
+    ${unpaid.length>0?`<div class="info-box info-red">
+      <div style="color:#fca5a5;font-weight:700;font-size:13px;margin-bottom:6px">⚠️ شهور غير مدفوعة (${unpaid.length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${unpaid.map(k=>`<span class="badge badge-red">${monthLabel(k)}</span>`).join("")}
+      </div>
+    </div>`:"<div class='info-box info-green' style='margin-bottom:12px'><div style='color:#86efac;font-weight:700'>✓ جميع الشهور مدفوعة!</div></div>"}
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn btn-green" onclick="openPayModal('${f.id}')">💳 تسجيل دفع</button>
+      <button class="btn btn-blue" onclick="showFamEdit('${f.id}')">✏️ تعديل</button>
+    </div>
+  `;
+}
+
+function renderFamEdit(id){
+  const f = db.families.find(x=>x.id===id);
+  if(!f){ showFamList(); return; }
+  const el = document.getElementById("fam-edit-view");
+  el.innerHTML = `
+    <button class="back-btn" onclick="showFamDetail('${f.id}')">◄ رجوع</button>
+    <div style="color:#e8d5a3;font-weight:800;font-size:17px;margin-bottom:14px">✏️ تعديل بيانات الأسرة</div>
+    ${famForm(f)}
+  `;
+}
+
+function delFamily(id){
+  if(!confirm("هل تريد حذف هذه الأسرة؟"))return;
+  db.families = db.families.filter(f=>f.id!==id);
+  save(); renderFamilies(); showToast("تم الحذف");
+}
+
+// ============================================================
+// FAMILY FORM (shared for add/edit)
+// ============================================================
+let tempChildren = [];
+
+function famForm(existing){
+  tempChildren = existing ? JSON.parse(JSON.stringify(existing.children||[])) : [];
+  const f = existing||{};
+  const isEdit = !!existing;
+  return `
+  <div class="field-row">
+    <div class="field"><label>اسم رب الأسرة <span>*</span></label><input id="ff-name" value="${f.name||""}"/></div>
+    <div class="field"><label>رقم الهاتف <span>*</span></label><input id="ff-phone" type="tel" value="${f.phone||""}"/></div>
+  </div>
+  <div class="field-row">
+    <div class="field"><label>البريد الإلكتروني</label><input id="ff-email" type="email" value="${f.email||""}"/></div>
+    <div class="field"><label>واتساب</label><input id="ff-wa" type="tel" value="${f.whatsapp||""}"/></div>
+  </div>
+  <div class="field-row">
+    <div class="field"><label>ماسنجر</label><input id="ff-msg" value="${f.messenger||""}"/></div>
+    <div class="field"><label>تيليغرام</label><input id="ff-tg" value="${f.telegram||""}"/></div>
+  </div>
+  <div class="field-row">
+    <div class="field"><label>اسم المصرف</label><input id="ff-bank" value="${f.bankName||""}"/></div>
+    <div class="field"><label>رقم الحساب</label><input id="ff-acc" value="${f.accountNo||""}"/></div>
+  </div>
+  <div class="field"><label>العنوان</label><input id="ff-addr" value="${f.address||""}"/></div>
+  <div class="info-box info-amber" style="margin-bottom:14px">
+    <div style="color:#fcd34d;font-weight:700;margin-bottom:10px;font-size:14px">📅 بيانات الاشتراك</div>
+    <div class="field-row">
+      <div class="field"><label>تاريخ بداية الاستحقاق</label><input id="ff-start" placeholder="2024-01" value="${f.startDate||db.settings.startDate||nowKey()}"/></div>
+      <div class="field"><label>رصيد مرحّل سابق (د.ل)</label><input id="ff-carry" type="number" value="${f.carryOver||"0"}" step="0.001"/></div>
+    </div>
+    <div style="color:#92a0b8;font-size:12px">الرصيد المرحّل: مبلغ سدّده المشترك في فترة سابقة قبل التسجيل في التطبيق</div>
+    <div class="info-box info-blue" style="margin-top:10px;padding:8px 12px">
+      <span style="color:#93c5fd;font-weight:700" id="monthly-preview">الاشتراك الشهري: — </span>
+    </div>
+  </div>
+  <div class="info-box info-purple">
+    <div style="color:#c4b5fd;font-weight:700;margin-bottom:10px;font-size:14px">👨‍👩‍👧 الأبناء</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <input id="ff-child" placeholder="اسم الابن / البنت" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;color:#e8f0ff;outline:none"/>
+      <button class="btn btn-purple btn-sm" onclick="addChild()">إضافة</button>
+    </div>
+    <div id="children-list">${renderChildrenList()}</div>
+  </div>
+  <div class="field"><label>ملاحظات</label><input id="ff-notes" value="${f.notes||""}"/></div>
+  <button class="btn btn-blue" onclick="${isEdit?`saveFamEdit('${f.id}')`:"saveFamNew()"}">💾 حفظ البيانات</button>
+  `;
+}
+
+function renderChildrenList(){
+  if(tempChildren.length===0) return `<div style="color:#4b5563;font-size:12px;text-align:center">لا يوجد أبناء</div>`;
+  return tempChildren.map((c,i)=>`<div class="child-item">👤 ${c.name}<button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="removeChild(${i})">حذف</button></div>`).join("");
+}
+
+function addChild(){
+  const inp = document.getElementById("ff-child");
+  const n = inp.value.trim(); if(!n) return;
+  tempChildren.push({id:genId(),name:n}); inp.value="";
+  document.getElementById("children-list").innerHTML = renderChildrenList();
+  updateMonthlyPreview();
+}
+function removeChild(i){
+  tempChildren.splice(i,1);
+  document.getElementById("children-list").innerHTML = renderChildrenList();
+  updateMonthlyPreview();
+}
+function updateMonthlyPreview(){
+  const el = document.getElementById("monthly-preview");
+  if(el) el.textContent = "الاشتراك الشهري: "+fmtMoney(FEE*(1+tempChildren.length))+" ("+(1+tempChildren.length)+" أفراد × "+FEE+" د.ل)";
+}
+
+function collectFamForm(existing){
+  const name = document.getElementById("ff-name").value.trim();
+  const phone = document.getElementById("ff-phone").value.trim();
+  if(!name||!phone){ showToast("الاسم والهاتف مطلوبان",true); return null; }
+  return {
+    id: existing?.id||genId(),
+    name, phone,
+    email: document.getElementById("ff-email").value.trim(),
+    whatsapp: document.getElementById("ff-wa").value.trim(),
+    messenger: document.getElementById("ff-msg").value.trim(),
+    telegram: document.getElementById("ff-tg").value.trim(),
+    bankName: document.getElementById("ff-bank").value.trim(),
+    accountNo: document.getElementById("ff-acc").value.trim(),
+    address: document.getElementById("ff-addr").value.trim(),
+    notes: document.getElementById("ff-notes").value.trim(),
+    startDate: document.getElementById("ff-start").value.trim()||nowKey(),
+    carryOver: parseFloat(document.getElementById("ff-carry").value)||0,
+    children: JSON.parse(JSON.stringify(tempChildren)),
+    payments: existing?.payments||{},
+    createdAt: existing?.createdAt||new Date().toISOString()
+  };
+}
+
+function saveFamNew(){
+  const f = collectFamForm(null); if(!f) return;
+  db.families.push(f); save();
+  closeModal(); renderFamilies();
+  showToast("تمت الإضافة بنجاح ✓");
+}
+function saveFamEdit(id){
+  const existing = db.families.find(x=>x.id===id);
+  const f = collectFamForm(existing); if(!f) return;
+  db.families = db.families.map(x=>x.id===id?f:x); save();
+  showFamDetail(id); showToast("تم التحديث ✓");
+}
+
+// ============================================================
+// PAYMENT MODAL
+// ============================================================
+let payFamId = null;
+let paySelected = [];
+
+function openPayModal(famId){
+  payFamId = famId; paySelected = [];
+  const f = db.families.find(x=>x.id===famId);
+  if(!f) return;
+  openModal("payment", f);
+}
+
+function toggleMonth(key){
+  if(paySelected.includes(key)) paySelected=paySelected.filter(x=>x!==key);
+  else paySelected.push(key);
+  renderPayMonths();
+  document.getElementById("pay-total").textContent = paySelected.length>0?"الإجمالي: "+fmtMoney(paySelected.length*famFee(db.families.find(x=>x.id===payFamId))):"";
+}
+
+function selectAllUnpaid(){
+  const f = db.families.find(x=>x.id===payFamId); if(!f) return;
+  const unpaid = famUnpaid(f);
+  paySelected = paySelected.length===unpaid.length?[]:JSON.parse(JSON.stringify(unpaid));
+  renderPayMonths();
+  document.getElementById("pay-total").textContent = paySelected.length>0?"الإجمالي: "+fmtMoney(paySelected.length*famFee(f)):"";
+}
+
+function renderPayMonths(){
+  const f = db.families.find(x=>x.id===payFamId); if(!f) return;
+  const unpaid = famUnpaid(f);
+  const el = document.getElementById("pay-months");
+  if(!el) return;
+  el.innerHTML = unpaid.map(k=>`<button class="month-btn ${paySelected.includes(k)?"selected":""}" onclick="toggleMonth('${k}')">${monthLabel(k)}</button>`).join("");
+}
+
+function confirmPay(){
+  if(!paySelected.length){ showToast("اختر شهراً واحداً على الأقل",true); return; }
+  const f = db.families.find(x=>x.id===payFamId); if(!f) return;
+  const amount = paySelected.length*famFee(f);
+  if(!f.payments) f.payments={};
+  paySelected.forEach(m=>{ f.payments[m]={date:new Date().toISOString(),amount:famFee(f)}; });
+  db.families = db.families.map(x=>x.id===f.id?f:x);
+  save();
+  // receipt
+  const lines = [
+    "════════════════════════════",
+    "   "+db.settings.orgName,
+    "════════════════════════════",
+    "رقم الإيصال : "+genId().toUpperCase(),
+    "التاريخ     : "+new Date().toLocaleDateString("ar"),
+    "────────────────────────────",
+    "المشترك     : "+f.name,
+    "الهاتف      : "+(f.phone||"—"),
+    "عدد الأفراد : "+(1+(f.children||[]).length),
+    "────────────────────────────",
+    "الشهور المدفوعة:",
+    ...paySelected.sort().map(m=>"  • "+monthLabel(m)),
+    "────────────────────────────",
+    "المبلغ المدفوع : "+fmtMoney(amount),
+    "عدد الشهور    : "+paySelected.length,
+    "الاشتراك/شهر  : "+fmtMoney(famFee(f)),
+    "────────────────────────────",
+    "شكراً على السداد ✓",
+    "════════════════════════════",
+  ];
+  openModal("receipt", lines.join("\n"));
+  showToast("تم تسجيل الدفع بنجاح ✓");
+}
+
+// ============================================================
+// FINANCE
+// ============================================================
+let financeTab = "exp";
+function switchTab(t){
+  financeTab=t;
+  ["exp","dep","sum"].forEach(x=>document.getElementById("tab-"+x).className="tab"+(x===t?" active":""));
+  renderFinanceContent();
+}
+
+function renderFinance(){
+  const t = totals(); const bal = t.balance;
+  document.getElementById("finance-summary-card").innerHTML = `
+    <div style="background:linear-gradient(135deg,${bal>=0?"rgba(34,197,94,.18)":"rgba(239,68,68,.18)"},rgba(59,130,246,.08));border-radius:16px;padding:16px;margin-bottom:14px;text-align:center">
+      <div style="color:#8899bb;font-size:12px">الرصيد المتاح</div>
+      <div style="color:${bal>=0?"#86efac":"#fca5a5"};font-size:26px;font-weight:900;margin-top:4px">${fmtMoney(bal)}</div>
+      <div style="display:flex;justify-content:center;gap:24px;margin-top:10px;font-size:12px">
+        <div><div style="color:#86efac;font-weight:700">+${fmtMoney(t.allPaid+Number(db.carryOver||0)+t.allCarry+t.deposits)}</div><div style="color:#4b5563">الوارد</div></div>
+        <div style="color:#374151;font-size:18px;align-self:center">−</div>
+        <div><div style="color:#fca5a5;font-weight:700">-${fmtMoney(t.expenses)}</div><div style="color:#4b5563">المصروفات</div></div>
+      </div>
+    </div>`;
+  renderFinanceContent();
+}
+
+function renderFinanceContent(){
+  const el = document.getElementById("finance-content");
+  const t = totals();
+  if(financeTab==="exp"){
+    el.innerHTML = `<button class="btn btn-red" onclick="openModal('expense')">+ إضافة مصروف</button>
+      <div style="margin-top:12px">${db.expenses.length===0?`<div style="text-align:center;color:#4b5563;padding:30px">لا توجد مصروفات</div>`:
+        db.expenses.slice().reverse().map(e=>`<div style="background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.18);border-radius:12px;padding:11px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+          <div><div style="color:#e8f0ff;font-size:13px;font-weight:600">${e.desc}</div><div style="color:#6b7a99;font-size:11px">${e.cat} • ${fmtDate(e.date)}</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="color:#fca5a5;font-weight:700;font-size:13px">${fmtMoney(e.amount)}</span>
+            <button onclick="delExpense('${e.id}')" style="background:none;border:none;color:#6b7a99;font-size:15px">🗑</button>
+          </div>
+        </div>`).join("")}</div>`;
+  } else if(financeTab==="dep"){
+    el.innerHTML = `<button class="btn btn-purple" onclick="openModal('deposit')">+ تسجيل إيداع</button>
+      <div style="margin-top:12px">${db.deposits.length===0?`<div style="text-align:center;color:#4b5563;padding:30px">لا توجد إيداعات</div>`:
+        db.deposits.slice().reverse().map(d=>`<div style="background:rgba(139,92,246,.07);border:1px solid rgba(139,92,246,.18);border-radius:12px;padding:11px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+          <div><div style="color:#e8f0ff;font-size:13px;font-weight:600">${d.name}</div><div style="color:#6b7a99;font-size:11px">${d.bank||""} ${d.receipt?"• "+d.receipt:""} • ${fmtDate(d.date)}</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="color:#c4b5fd;font-weight:700;font-size:13px">${fmtMoney(d.amount)}</span>
+            <button onclick="delDeposit('${d.id}')" style="background:none;border:none;color:#6b7a99;font-size:15px">🗑</button>
+          </div>
+        </div>`).join("")}</div>`;
+  } else {
+    const allCarry = db.families.reduce((s,f)=>s+Number(f.carryOver||0),0);
+    el.innerHTML = `<div class="section"><div class="section-title">ملخص مالي كامل</div>
+      ${[
+        ["الرصيد المرحّل للصندوق", fmtMoney(db.carryOver||0), "#f59e0b"],
+        ["الرصيد المرحّل للأسر", fmtMoney(allCarry), "#f59e0b"],
+        ["إيرادات الاشتراكات المحصّلة", fmtMoney(t.allPaid), "#22c55e"],
+        ["إيداعات أخرى", fmtMoney(t.deposits), "#8b5cf6"],
+        ["إجمالي الوارد", fmtMoney(t.allPaid+Number(db.carryOver||0)+allCarry+t.deposits), "#3b82f6"],
+        ["المصروفات الكلية", fmtMoney(t.expenses), "#ef4444"],
+        ["اشتراكات مستحقة غير محصّلة", fmtMoney(t.allDue-t.allPaid), "#f87171"],
+        ["الرصيد المتاح", fmtMoney(t.balance), t.balance>=0?"#22c55e":"#ef4444"],
+      ].map(([k,v,c])=>`<div class="stat-row"><span>${k}</span><span style="color:${c}">${v}</span></div>`).join("")}
+    </div>`;
+  }
+}
+
+function delExpense(id){ if(!confirm("حذف؟"))return; db.expenses=db.expenses.filter(x=>x.id!==id); save(); renderFinance(); showToast("تم الحذف"); }
+function delDeposit(id){ if(!confirm("حذف؟"))return; db.deposits=db.deposits.filter(x=>x.id!==id); save(); renderFinance(); showToast("تم الحذف"); }
+
+// ============================================================
+// REPORTS
+// ============================================================
+function renderReports(){
+  const yr = new Date().getFullYear();
+  const months = MONTHS.map((name,i)=>{
+    const key=yr+"-"+String(i+1).padStart(2,"0");
+    const paidFams=db.families.filter(f=>f.payments&&f.payments[key]);
+    const dueFams=db.families.filter(f=>famDue(f).includes(key));
+    const rev=paidFams.reduce((s,f)=>s+Number(f.payments[key]?.amount||0),0);
+    return {name,key,paid:paidFams.length,due:dueFams.length,rev};
+  });
+  const maxRev = Math.max(...months.map(m=>m.rev),1);
+  document.getElementById("reports-content").innerHTML = `
+    <div class="section">
+      <div class="section-title">التحصيل الشهري ${yr}</div>
+      ${months.map(m=>`<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px">
+          <span style="color:#c8d8f0;width:60px">${m.name}</span>
+          <span style="color:#6b7a99">${m.paid}/${m.due} أسرة</span>
+          <span style="color:#86efac;font-weight:700">${fmtMoney(m.rev)}</span>
+        </div>
+        <div class="prog-wrap"><div class="prog-bar" style="width:${(m.rev/maxRev)*100}%"></div></div>
+      </div>`).join("")}
+    </div>
+    <div class="section">
+      <div class="section-title">حالة الأسر</div>
+      ${db.families.map(f=>{
+        const unpaid=famUnpaid(f); const bal=famBalance(f);
+        return `<div class="stat-row">
+          <span style="color:#c8d8f0">${f.name}</span>
+          <span style="color:${unpaid.length===0?"#86efac":"#fca5a5"}">${unpaid.length===0?"✓ محدّث":unpaid.length+" شهر متأخر"}</span>
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function renderSettings(){
+  document.getElementById("settings-content").innerHTML = `
+    <div class="section">
+      <div class="section-title">إعدادات الصندوق</div>
+      <div class="field"><label>اسم الصندوق / المنظمة</label><input id="st-name" value="${db.settings.orgName}"/></div>
+      <div class="field"><label>تاريخ بداية الاستحقاق الافتراضي (YYYY-MM)</label><input id="st-start" placeholder="2024-01" value="${db.settings.startDate||nowKey()}"/></div>
+      <div class="field"><label>رصيد مرحّل للصندوق (د.ل)</label><input id="st-carry" type="number" value="${db.carryOver||0}" step="0.001"/></div>
+      <div class="info-box info-amber" style="margin-bottom:12px"><div style="color:#fcd34d;font-size:12px">💡 الرصيد المرحّل: رصيد كان في الخزينة قبل استخدام التطبيق</div></div>
+      <div class="field-row">
+        <div class="field"><label>هاتف المسؤول</label><input id="st-phone" value="${db.settings.adminPhone||""}"/></div>
+        <div class="field"><label>بريد المسؤول</label><input id="st-email" value="${db.settings.adminEmail||""}"/></div>
+      </div>
+      <div class="info-box info-blue" style="margin-bottom:12px">
+        <span style="color:#93c5fd;font-size:13px;font-weight:700">قيمة الاشتراك: ${FEE} دينار للفرد شهرياً</span>
+      </div>
+      <button class="btn btn-blue" onclick="saveSettings()">💾 حفظ الإعدادات</button>
+    </div>
+    <div class="section">
+      <div class="section-title">💾 النسخ الاحتياطي</div>
+      <div style="color:#6b7a99;font-size:12px;margin-bottom:12px">🔒 جميع البيانات محفوظة على جهازك فقط — لا إنترنت مطلوب</div>
+      <button class="btn btn-green" onclick="exportData()">📤 تصدير البيانات (JSON)</button>
+      <label class="btn" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;text-align:center;display:block;cursor:pointer">
+        📥 استيراد بيانات
+        <input type="file" accept=".json" onchange="importData(event)" style="display:none"/>
+      </label>
+    </div>
+    <div class="section">
+      <div class="section-title">📊 إحصائيات</div>
+      <div class="stat-row"><span>الأسر المسجلة</span><span style="color:#93c5fd">${db.families.length}</span></div>
+      <div class="stat-row"><span>إجمالي الأفراد</span><span style="color:#93c5fd">${db.families.reduce((s,f)=>s+1+(f.children||[]).length,0)}</span></div>
+      <div class="stat-row"><span>إجمالي المصروفات</span><span style="color:#fca5a5">${db.expenses.length}</span></div>
+      <div class="stat-row"><span>إجمالي الإيداعات</span><span style="color:#c4b5fd">${db.deposits.length}</span></div>
+    </div>
+    <button class="btn" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#fca5a5" onclick="clearAll()">🗑 مسح جميع البيانات</button>
+  `;
+}
+
+function saveSettings(){
+  db.settings.orgName = document.getElementById("st-name").value.trim()||"صندوق الاشتراكات";
+  db.settings.startDate = document.getElementById("st-start").value.trim()||nowKey();
+  db.settings.adminPhone = document.getElementById("st-phone").value.trim();
+  db.settings.adminEmail = document.getElementById("st-email").value.trim();
+  db.carryOver = parseFloat(document.getElementById("st-carry").value)||0;
+  save(); showToast("تم الحفظ ✓");
+  document.getElementById("org-name-hdr").textContent = db.settings.orgName;
+}
+
+function exportData(){
+  const blob = new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
+  const a = document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download = "backup_"+Date.now()+".json"; a.click();
+}
+
+function importData(e){
+  const file=e.target.files[0]; if(!file) return;
+  const r=new FileReader();
+  r.onload=ev=>{ try{ db=JSON.parse(ev.target.result); save(); renderPage(currentPage); showToast("تم الاستيراد ✓"); }catch{ showToast("ملف غير صالح",true); } };
+  r.readAsText(file);
+}
+
+function clearAll(){
+  if(!confirm("مسح جميع البيانات؟ لا يمكن التراجع!")) return;
+  db=blankDb(); save(); renderPage(currentPage); showToast("تم المسح");
+}
+
+// ============================================================
+// MODALS
+// ============================================================
+function openModal(type, data){
+  document.getElementById("modal-overlay").classList.add("open");
+  const title = document.getElementById("modal-title");
+  const body  = document.getElementById("modal-body");
+  if(type==="addFamily"){
+    title.textContent="➕ إضافة أسرة جديدة";
+    body.innerHTML = famForm(null);
+    updateMonthlyPreview();
+  } else if(type==="payment"){
+    const f = data;
+    const unpaid = famUnpaid(f); const bal = famBalance(f);
+    title.textContent="💳 تسجيل الدفع";
+    body.innerHTML = `
+      <div class="info-box info-blue" style="margin-bottom:14px">
+        <div style="color:#93c5fd;font-weight:700;font-size:15px">${f.name}</div>
+        <div style="color:#8899bb;font-size:12px">${1+(f.children||[]).length} أفراد | اشتراك شهري: ${fmtMoney(famFee(f))}</div>
+        ${Number(f.carryOver||0)>0?`<div style="color:#86efac;font-size:12px;margin-top:4px">✓ رصيد مرحّل: ${fmtMoney(f.carryOver)}</div>`:""}
+        <div style="color:${bal>=0?"#86efac":"#fca5a5"};font-size:13px;font-weight:700;margin-top:6px">رصيد الحساب: ${fmtMoney(bal)} ${bal>=0?"✓":"⚠️"}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="color:#e8d5a3;font-size:13px;font-weight:700">الشهور غير المدفوعة (${unpaid.length})</span>
+        <button class="btn btn-sm" style="background:rgba(99,102,241,.15);color:#a5b4fc;border:1px solid rgba(99,102,241,.3)" onclick="selectAllUnpaid()">تحديد الكل</button>
+      </div>
+      ${unpaid.length===0?`<div style="text-align:center;color:#22c55e;padding:20px;font-weight:700">✓ جميع الشهور مدفوعة!</div>`:`<div class="month-grid" id="pay-months"></div>`}
+      ${Object.keys(f.payments||{}).length>0?`<div style="margin-bottom:14px">
+        <div style="color:#6b7a99;font-size:12px;margin-bottom:6px">✓ مدفوع (${Object.keys(f.payments).length} شهر)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${Object.keys(f.payments).sort().map(k=>`<span class="badge badge-green">${monthLabel(k)}</span>`).join("")}</div>
+      </div>`:""}
+      <div id="pay-total" style="text-align:center;color:#e8d5a3;font-weight:800;font-size:16px;background:rgba(232,213,163,.1);border-radius:10px;padding:10px;margin-bottom:12px;display:${unpaid.length>0?"block":"none"}"></div>
+      ${unpaid.length>0?`<button class="btn btn-green" onclick="confirmPay()">✓ تأكيد الدفع وإصدار الإيصال</button>`:""}
+    `;
+    if(unpaid.length>0) renderPayMonths();
+  } else if(type==="expense"){
+    title.textContent="💸 إضافة مصروف";
+    body.innerHTML = `
+      <div class="field"><label>وصف المصروف <span>*</span></label><input id="ex-desc"/></div>
+      <div class="field-row">
+        <div class="field"><label>المبلغ (د.ل) <span>*</span></label><input id="ex-amount" type="number" step="0.001"/></div>
+        <div class="field"><label>التاريخ</label><input id="ex-date" type="date" value="${new Date().toISOString().slice(0,10)}"/></div>
+      </div>
+      <div class="field"><label>الفئة</label>
+        <select id="ex-cat">
+          ${["عام","إيجار","كهرباء","مياه","اتصالات","مكتبية","صيانة","مصاريف إدارية","أخرى"].map(c=>`<option>${c}</option>`).join("")}
+        </select>
+      </div>
+      <button class="btn btn-red" onclick="saveExpense()">💸 إضافة المصروف</button>
+    `;
+  } else if(type==="deposit"){
+    title.textContent="💰 تسجيل إيداع";
+    body.innerHTML = `
+      <button class="btn" style="background:rgba(139,92,246,.15);border:1px dashed rgba(139,92,246,.5);color:#a78bfa;margin-bottom:14px" onclick="scanSlip()">📷 مسح قسيمة الإيداع (OCR محاكاة)</button>
+      <div class="field-row">
+        <div class="field"><label>اسم المودع <span>*</span></label><input id="dp-name"/></div>
+        <div class="field"><label>رقم الإيصال</label><input id="dp-receipt"/></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>المصرف</label><input id="dp-bank"/></div>
+        <div class="field"><label>رقم الحساب</label><input id="dp-acc"/></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>المبلغ (د.ل) <span>*</span></label><input id="dp-amount" type="number" step="0.001"/></div>
+        <div class="field"><label>التاريخ</label><input id="dp-date" type="date" value="${new Date().toISOString().slice(0,10)}"/></div>
+      </div>
+      <div class="field"><label>ملاحظات</label><input id="dp-notes"/></div>
+      <button class="btn btn-purple" onclick="saveDeposit()">💰 تسجيل الإيداع</button>
+    `;
+  } else if(type==="receipt"){
+    title.textContent="🧾 الإيصال";
+    body.innerHTML = `<pre id="receipt-pre">${data}</pre>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="btn btn-green" onclick="copyReceipt()">📋 نسخ الإيصال</button>
+      </div>`;
+  }
+}
+
+function closeModal(){ document.getElementById("modal-overlay").classList.remove("open"); }
+
+let lastReceipt = "";
+function copyReceipt(){
+  const el = document.getElementById("receipt-pre");
+  if(el){ navigator.clipboard?.writeText(el.textContent); showToast("تم نسخ الإيصال"); }
+}
+
+function saveExpense(){
+  const desc=document.getElementById("ex-desc").value.trim();
+  const amount=parseFloat(document.getElementById("ex-amount").value);
+  if(!desc||!amount){ showToast("الوصف والمبلغ مطلوبان",true); return; }
+  db.expenses.push({id:genId(),desc,amount,date:document.getElementById("ex-date").value,cat:document.getElementById("ex-cat").value,createdAt:new Date().toISOString()});
+  save(); closeModal(); renderFinance(); showToast("تم إضافة المصروف");
+}
+
+function saveDeposit(){
+  const name=document.getElementById("dp-name").value.trim();
+  const amount=parseFloat(document.getElementById("dp-amount").value);
+  if(!name||!amount){ showToast("اسم المودع والمبلغ مطلوبان",true); return; }
+  db.deposits.push({id:genId(),name,amount,bank:document.getElementById("dp-bank").value.trim(),acc:document.getElementById("dp-acc").value.trim(),receipt:document.getElementById("dp-receipt").value.trim(),date:document.getElementById("dp-date").value,notes:document.getElementById("dp-notes").value.trim(),createdAt:new Date().toISOString()});
+  save(); closeModal(); renderFinance(); showToast("تم تسجيل الإيداع");
+}
+
+function scanSlip(){
+  setTimeout(()=>{
+    const el=document.getElementById("dp-bank"); if(el) el.value="مصرف الجمهورية";
+    const el2=document.getElementById("dp-receipt"); if(el2) el2.value="RCP-"+Math.floor(Math.random()*90000+10000);
+    const el3=document.getElementById("dp-amount"); if(el3) el3.value=(Math.floor(Math.random()*500+50));
+    showToast("تم التعرف على القسيمة ✓");
+  },1200);
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+let toastTimer = null;
+function showToast(msg, err){
+  const el=document.getElementById("toast");
+  el.textContent=msg;
+  el.style.background=err?"rgba(239,68,68,.97)":"rgba(34,197,94,.97)";
+  el.style.display="block";
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ el.style.display="none"; },2800);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+renderHome();
+</script>
+</body>
+</html>
