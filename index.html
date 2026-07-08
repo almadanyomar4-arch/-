@@ -1071,6 +1071,52 @@ function updateConnBadge(){
 }
 
 // ============================================================
+// SERVICE WORKER UPDATE DETECTION
+// ============================================================
+let swRegistration = null;
+function initSwUpdate(){
+  if(!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(reg=>{
+    swRegistration = reg;
+    reg.addEventListener('updatefound', ()=>{
+      const newSW = reg.installing;
+      if(!newSW) return;
+      newSW.addEventListener('statechange', ()=>{
+        if(newSW.state==='installed' && navigator.serviceWorker.controller){
+          showUpdateBanner();
+        }
+      });
+    });
+    setInterval(()=>{ reg.update(); }, 3600000);
+  }).catch(()=>{});
+}
+function showUpdateBanner(){
+  const existing = document.getElementById('update-banner');
+  if(existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'update-banner';
+  banner.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9998;background:#161b2e;border:1px solid rgba(59,130,246,.4);border-radius:16px;padding:14px 18px;max-width:400px;width:calc(100% - 32px);box-shadow:0 8px 32px rgba(0,0,0,.5);animation:fadeIn .3s ease;text-align:center';
+  banner.innerHTML = `
+    <div style="color:#93c5fd;font-weight:800;font-size:14px;margin-bottom:8px">🆕 نسخة جديدة متاحة!</div>
+    <div style="color:#6b7a99;font-size:12px;margin-bottom:12px">تم تحديث التطبيق إلى الإصدار ${APP_VERSION}</div>
+    <button class="btn btn-blue" style="width:auto;padding:8px 24px;display:inline-block" onclick="applyUpdate()">🔄 تحديث الآن</button>
+    <button class="btn btn-outline btn-sm" style="width:auto;display:inline-block;margin-right:6px" onclick="dismissUpdateBanner()">لاحقاً</button>
+  `;
+  document.body.appendChild(banner);
+}
+function dismissUpdateBanner(){
+  const el = document.getElementById('update-banner');
+  if(el) el.remove();
+}
+function applyUpdate(){
+  if(swRegistration && swRegistration.waiting){
+    swRegistration.waiting.postMessage({action:'skipWaiting'});
+  }
+  dismissUpdateBanner();
+  window.location.reload();
+}
+
+// ============================================================
 // ONEDRIVE AUTH (Device Code Flow)
 // ============================================================
 function getMsftTokens(){
@@ -1451,7 +1497,7 @@ function showToast(msg, err){
 // ============================================================
 initPinLock();
 initConnectivity();
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+initSwUpdate();
 renderHome();
 </script>
 </body>
