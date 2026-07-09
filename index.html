@@ -230,7 +230,7 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.4.2";
 const PIN_KEY = "sub_pin";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
@@ -1019,10 +1019,24 @@ function saveSettings(){
   document.getElementById("org-name-hdr").textContent = db.settings.orgName;
 }
 
-function exportData(){
-  const blob = new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
-  const a = document.createElement("a"); a.href=URL.createObjectURL(blob);
-  a.download = "backup_"+Date.now()+".json"; a.click();
+async function exportData(){
+  const content = JSON.stringify(db,null,2);
+  const filename = "backup_"+Date.now()+".json";
+  try {
+    if('showSaveFilePicker' in window){
+      const h = await window.showSaveFilePicker({suggestedName:filename,types:[{description:"JSON",accept:{"application/json":[".json"]}}]});
+      const w = await h.createWritable(); await w.write(content); await w.close();
+      showToast("تم التصدير ✓"); return;
+    }
+  } catch(e){}
+  try {
+    const f = new File([content], filename, {type:"application/json"});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){ await navigator.share({files:[f]}); showToast("تم التصدير ✓"); return; }
+  } catch(e){}
+  const blob = new Blob([content],{type:"application/json"});
+  const a = document.createElement("a"); a.href=URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 10000);
 }
 
 function importData(e){
@@ -1162,17 +1176,19 @@ async function msftLogin(){
   if(!CONFIG.MSFT_CLIENT_ID || CONFIG.MSFT_CLIENT_ID.startsWith("PASTE_")){
     showToast("لم يتم إعداد ربط Microsoft بعد (راجع AZURE_SETUP.md)", true); return;
   }
+  if(!navigator.onLine){ showToast("لا يوجد اتصال بالإنترنت", true); return; }
   try{
     const res = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/devicecode", {
       method:"POST",
       headers:{"Content-Type":"application/x-www-form-urlencoded"},
       body:new URLSearchParams({client_id:CONFIG.MSFT_CLIENT_ID, scope:MSFT_SCOPE})
     });
+    if(!res.ok){ showToast("خدمة Microsoft غير متوفرة من شبكتك حالياً", true); return; }
     const data = await res.json();
     if(!data.device_code){ showToast("تعذّر بدء تسجيل الدخول", true); return; }
     openModal("onedriveConnect", data);
     pollMsftToken(data.device_code, data.interval||5);
-  }catch(e){ showToast("لا يوجد اتصال بالإنترنت", true); }
+  }catch(e){ showToast("تعذر الوصول لـ Microsoft، قد تكون محجوبة على شبكتك", true); }
 }
 
 let msftPollTimer = null;
