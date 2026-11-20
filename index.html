@@ -230,7 +230,7 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.5.3";
+const APP_VERSION = "1.6.0";
 const PIN_KEY = "sub_pin";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
@@ -238,6 +238,7 @@ const ONEDRIVE_META_KEY = "onedrive_meta";
 
 function blankDb(){
   return {
+    schemaVersion:1,
     families:[],
     expenses:[],
     deposits:[],
@@ -256,6 +257,50 @@ function load(){
   try{ const d=localStorage.getItem(STORE); return d?JSON.parse(d):blankDb(); }catch{ return blankDb(); }
 }
 function save(){ localStorage.setItem(STORE, JSON.stringify(db)); scheduleAutoBackup(); }
+function normalizeDb(d){
+  if(!d||typeof d!=="object"||Array.isArray(d)) throw new Error("بنية الملف غير صحيحة");
+  if(!Array.isArray(d.families)) throw new Error("لا توجد قائمة أسر في الملف");
+  const arr=x=>Array.isArray(x)?x:[];
+  const out={...d,families:d.families,expenses:arr(d.expenses),deposits:arr(d.deposits),carryOver:Number(d.carryOver)||0,settings:{...blankDb().settings,...(d.settings||{})},schemaVersion:1};
+  const ids=new Set();
+  out.families.forEach((f,i)=>{
+    if(!f||typeof f!=="object") throw new Error("أسرة رقم "+(i+1)+" غير صالحة");
+    if(!f.name) throw new Error("أسرة رقم "+(i+1)+" بلا اسم");
+    if(!f.id||ids.has(f.id)) f.id=genId(); ids.add(f.id);
+    f.children=arr(f.children); f.children.forEach(c=>{ if(!c||!c.name) throw new Error("عضو بلا اسم في أسرة «"+f.name+"»"); if(!c.id) c.id=genId(); });
+    if(!f.payments||typeof f.payments!=="object"||Array.isArray(f.payments)) f.payments={};
+    for(const [k,p] of Object.entries(f.payments)){
+      if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(k)||!p||!isFinite(Number(p.amount))) throw new Error("دفعة غير صالحة في أسرة «"+f.name+"» ("+k+")");
+    }
+    f.paymentHistory=arr(f.paymentHistory);
+    f.carryOver=Number(f.carryOver)||0; f.credit=Number(f.credit)||0;
+  });
+  [...out.expenses,...out.deposits].forEach(x=>{ if(!x||!isFinite(Number(x.amount))) throw new Error("مبلغ غير صالح في المصروفات أو الإيداعات"); });
+  return out;
+}
+function keepSafetyBackup(tag){
+  try{
+    const raw=localStorage.getItem(STORE); if(!raw) return;
+    localStorage.setItem("sub_v4_safety_"+Date.now()+"_"+tag,raw);
+    const keys=Object.keys(localStorage).filter(k=>k.startsWith("sub_v4_safety_")).sort();
+    while(keys.length>3) localStorage.removeItem(keys.shift());
+  }catch(e){}
+}
+function replaceDb(data, tag){
+  const n=normalizeDb(data); keepSafetyBackup(tag);
+  db=n; save(); renderPage(currentPage);
+}
+function dbSummary(d){ return d.families.length+" أسرة، "+d.expenses.length+" مصروف، "+d.deposits.length+" إيداع"; }
+function restoreSafetyBackup(){
+  const keys=Object.keys(localStorage).filter(k=>k.startsWith("sub_v4_safety_")).sort().reverse();
+  if(!keys.length){ showToast("لا توجد نسخ أمان بعد",true); return; }
+  const info=keys.map((k,i)=>{ let sm="";
+    try{ sm=dbSummary(normalizeDb(JSON.parse(localStorage.getItem(k)))); }catch(e){ sm="تالفة"; }
+    return (i+1)+") "+new Date(Number(k.split("_")[3])).toLocaleString("ar")+" — "+sm; }).join("\n");
+  const c=parseInt(prompt("نسخ الأمان المتاحة (آخر 3):\n"+info+"\n\nاكتب رقم النسخة للاسترجاع:",""));
+  if(!c||!keys[c-1]) return;
+  try{ replaceDb(JSON.parse(localStorage.getItem(keys[c-1])),"before-restore"); showToast("تم الاسترجاع ✓"); }catch(e){ showToast("تعذر الاسترجاع: "+e.message,true); }
+}
 function genId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function nowKey(){ const n=new Date(); return n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0"); }
 function fmtMoney(n){ return Number(n||0).toFixed(3)+" د.ل"; }
@@ -1165,6 +1210,7 @@ function renderSettings(){
       <div class="stat-row"><span>إجمالي المصروفات</span><span style="color:#fca5a5">${db.expenses.length}</span></div>
       <div class="stat-row"><span>إجمالي الإيداعات</span><span style="color:#c4b5fd">${db.deposits.length}</span></div>
     </div>
+    <button class="btn" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#fca5a5" onclick="restoreSafetyBackup()">↩️ استرجاع نسخة أمان (آخر 3)</button>
     <button class="btn" style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#fca5a5" onclick="clearAll()">🗑 مسح جميع البيانات</button>
     <div style="text-align:center;color:#374151;font-size:11px;margin-top:14px">الإصدار ${APP_VERSION}</div>
   `;
@@ -1194,6 +1240,7 @@ function exportData(){
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
         <button class="btn btn-blue" style="flex:1" onclick="copyExport()">📋 نسخ البيانات</button>
         <button class="btn btn-green" style="flex:1" onclick="shareExport()">📤 مشاركة</button>
+        <button class="btn btn-blue" style="flex:1" onclick="downloadExport()">💾 حفظ كملف</button>
         <button class="btn btn-outline" style="flex:1" onclick="document.getElementById('export-modal').remove()">إغلاق</button>
       </div>
     </div>`;
@@ -1204,23 +1251,41 @@ function copyExport(){
   if(!ta) return;
   navigator.clipboard.writeText(ta.value).then(()=>showToast("تم النسخ ✓")).catch(()=>{ ta.select(); document.execCommand("copy"); showToast("تم النسخ ✓"); });
 }
+function exportFileName(){ return "جمعية-"+new Date().toISOString().slice(0,10)+".json"; }
+function downloadExport(){
+  const ta=document.getElementById("export-text"); if(!ta) return;
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([ta.value],{type:"application/json"}));
+  a.download=exportFileName(); document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000); showToast("تم حفظ الملف ✓");
+}
 function shareExport(){
-  const ta = document.getElementById("export-text");
-  if(!ta) return;
-  if(navigator.share){ navigator.share({title:"نسخة احتياطية",text:ta.value}).catch(()=>{}); }
-  else showToast("المشاركة غير متاحة", true);
+  const ta=document.getElementById("export-text"); if(!ta) return;
+  if(!navigator.share){ downloadExport(); return; }
+  try{
+    const file=new File([ta.value],exportFileName(),{type:"application/json"});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){ navigator.share({title:"نسخة احتياطية",files:[file]}).catch(()=>{}); return; }
+  }catch(e){}
+  navigator.share({title:"نسخة احتياطية",text:ta.value}).catch(()=>{});
 }
 
 function importData(e){
-  const file=e.target.files[0]; if(!file) return;
+  const input=e.target; const file=input.files[0]; if(!file) return;
   const r=new FileReader();
-  r.onload=ev=>{ try{ db=JSON.parse(ev.target.result); save(); renderPage(currentPage); showToast("تم الاستيراد ✓"); }catch{ showToast("ملف غير صالح",true); } };
+  r.onload=ev=>{
+    try{
+      const n=normalizeDb(JSON.parse(ev.target.result));
+      if(!confirm("سيتم استبدال بياناتك الحالية ("+dbSummary(db)+")\nبالملف المحدد ("+dbSummary(n)+").\nستُحفظ نسخة أمان من بياناتك الحالية. متابعة؟")) return;
+      replaceDb(n,"import"); showToast("تم الاستيراد ✓");
+    }catch(err){ showToast("ملف غير صالح: "+(err.message||""),true); }
+    input.value="";
+  };
   r.readAsText(file);
 }
 
 function clearAll(){
   if(!confirm("مسح جميع البيانات؟ لا يمكن التراجع!")) return;
-  db=blankDb(); save(); renderPage(currentPage); showToast("تم المسح");
+  keepSafetyBackup("clear"); db=blankDb(); save(); renderPage(currentPage); showToast("تم المسح");
 }
 
 // ============================================================
@@ -1457,7 +1522,17 @@ async function backupToOneDrive(silent){
       body:JSON.stringify(db)
     });
     if(!res.ok) throw new Error("upload failed");
-    setOnedriveMeta({lastBackupAt:new Date().toISOString()});
+    const meta=getOnedriveMeta(); const nowIso=new Date().toISOString(); let datedAt=meta.datedAt;
+    if(!silent || !datedAt || Date.now()-new Date(datedAt).getTime()>1800000){
+      try{
+        const day=nowIso.slice(0,10);
+        const r2=await fetch("https://graph.microsoft.com/v1.0/me/drive/special/approot:/backup-"+day+".json:/content",{method:"PUT",headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},body:JSON.stringify(db)});
+        if(r2.ok) datedAt=nowIso;
+        const old=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+        fetch("https://graph.microsoft.com/v1.0/me/drive/special/approot:/backup-"+old+".json",{method:"DELETE",headers:{"Authorization":"Bearer "+token}}).catch(()=>{});
+      }catch(e){}
+    }
+    setOnedriveMeta({...meta,lastBackupAt:nowIso,datedAt});
     if(!silent) showToast("تم النسخ الاحتياطي إلى OneDrive ✓");
     if(currentPage==="settings") renderSettings();
   }catch(e){ if(!silent) showToast("فشل النسخ الاحتياطي", true); }
@@ -1473,9 +1548,7 @@ async function restoreFromOneDrive(){
       headers:{"Authorization":"Bearer "+token}
     });
     if(!res.ok) throw new Error("not found");
-    db = await res.json();
-    save();
-    renderPage(currentPage);
+    replaceDb(await res.json(),"onedrive");
     showToast("تم استعادة البيانات من OneDrive ✓");
   }catch(e){ showToast("لا توجد نسخة محفوظة في OneDrive بعد", true); }
 }
@@ -1534,7 +1607,7 @@ async function pullFromServer(){
     const res = await fetch(url+"/api/data");
     if(!res.ok) throw new Error();
     const data = await res.json();
-    if(data){ db=data; save(); renderPage(currentPage); showToast("✓ تم سحب البيانات من الخادم"); checkServer(); }
+    if(data){ replaceDb(data,"server"); showToast("✓ تم سحب البيانات من الخادم"); checkServer(); }
     else showToast("لا توجد بيانات على الخادم بعد", true);
   }catch{ showToast("لا يمكن الاتصال بالخادم", true); }
 }
@@ -1640,7 +1713,7 @@ function openModal(type, data){
   } else if(type==="deposit"){
     title.textContent="💰 تسجيل إيداع";
     body.innerHTML = `
-      <button class="btn" style="background:rgba(139,92,246,.15);border:1px dashed rgba(139,92,246,.5);color:#a78bfa;margin-bottom:14px" onclick="scanSlip()">📷 مسح قسيمة الإيداع (OCR محاكاة)</button>
+      
       <div class="field-row">
         <div class="field"><label>اسم المودع <span>*</span></label><input id="dp-name"/></div>
         <div class="field"><label>رقم الإيصال</label><input id="dp-receipt"/></div>
@@ -1703,14 +1776,6 @@ function saveDeposit(){
   save(); closeModal(); renderFinance(); showToast("تم تسجيل الإيداع");
 }
 
-function scanSlip(){
-  setTimeout(()=>{
-    const el=document.getElementById("dp-bank"); if(el) el.value="مصرف الجمهورية";
-    const el2=document.getElementById("dp-receipt"); if(el2) el2.value="RCP-"+Math.floor(Math.random()*90000+10000);
-    const el3=document.getElementById("dp-amount"); if(el3) el3.value=(Math.floor(Math.random()*500+50));
-    showToast("تم التعرف على القسيمة ✓");
-  },1200);
-}
 
 // ============================================================
 // TOAST
