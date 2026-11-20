@@ -257,17 +257,25 @@ function nowKey(){ const n=new Date(); return n.getFullYear()+"-"+String(n.getMo
 function fmtMoney(n){ return Number(n||0).toFixed(3)+" د.ل"; }
 function fmtDate(d){ return d?new Date(d).toLocaleDateString("ar"):"—"; }
 function monthLabel(key){ const [y,m]=key.split("-"); return MONTHS[parseInt(m)-1]+" "+y; }
+function isMonthKey(key){ return /^\d{4}-(0[1-9]|1[0-2])$/.test(key||""); }
+function previousMonth(key){
+  const [year,month] = key.split("-").map(Number);
+  const d = new Date(year, month-2, 1);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+}
+function monthsBetween(start,end){
+  if(!isMonthKey(start)||!isMonthKey(end)||start>end) return [];
+  const keys=[], c=new Date(start+"-01"), last=new Date(end+"-01");
+  while(c<=last){ keys.push(c.getFullYear()+"-"+String(c.getMonth()+1).padStart(2,"0")); c.setMonth(c.getMonth()+1); }
+  return keys;
+}
 function monthsSince(start){
-  if(!start)return[];
+  if(!isMonthKey(start))return[];
   const s=new Date(start+"-01"), e=new Date(); e.setDate(1);
   const keys=[]; const c=new Date(s);
   while(c<=e){ keys.push(c.getFullYear()+"-"+String(c.getMonth()+1).padStart(2,"0")); c.setMonth(c.getMonth()+1); }
   return keys;
 }
-function famFee(f){ return FEE*(1+(f.children||[]).length); }
-function famDueMonths(f){ return monthsSince(f.startDate||f.createdAt?.slice(0,7)); }
-function famPaidMonths(f){ return Object.keys(f.payments||{}); }
-
 function famActiveCount(f, monthKey){
   let c = monthKey>=(f.startDate||"0000-00")?1:0;
   for(const ch of (f.children||[])){
@@ -277,12 +285,16 @@ function famActiveCount(f, monthKey){
   }
   return c;
 }
+function famCurrentMemberCount(f){ return famActiveCount(f, nowKey()); }
+function famFee(f){ return FEE*famCurrentMemberCount(f); }
+function famDueMonths(f){ return monthsSince(f.startDate||f.createdAt?.slice(0,7)); }
 function famFeeForMonth(f, monthKey){ return FEE*famActiveCount(f, monthKey); }
+function famPaidAmount(f, monthKey){ return Number(f.payments?.[monthKey]?.amount||0); }
+function famOutstanding(f, monthKey){ return Math.max(0, famFeeForMonth(f,monthKey)-famPaidAmount(f,monthKey)); }
+function famPaidMonths(f){ return famDueMonths(f).filter(k=>famOutstanding(f,k)<=0.0001); }
 
 function famUnpaid(f){
-  const all = famDueMonths(f);
-  const paid = famPaidMonths(f);
-  return all.filter(k=>!paid.includes(k));
+  return famDueMonths(f).filter(k=>famOutstanding(f,k)>0.0001);
 }
 function famTotalDue(f){
   return famDueMonths(f).reduce((s,m)=>s+famFeeForMonth(f,m),0);
@@ -308,7 +320,7 @@ function totals(){
   const expenses = db.expenses.reduce((s,e)=>s+Number(e.amount||0),0);
   const deposits = db.deposits.reduce((s,d)=>s+Number(d.amount||0),0);
   const balance  = Number(db.carryOver||0)+allCarry+allCredit+allPaid+deposits-expenses;
-  const members  = db.families.reduce((s,f)=>s+1+(f.children||[]).length,0);
+  const members  = db.families.reduce((s,f)=>s+famCurrentMemberCount(f),0);
   return {allPaid,allCarry,allDue,expenses,deposits,balance,members};
 }
 
@@ -442,7 +454,7 @@ function renderFamDetail(id){
   if(!f){ showFamList(); return; }
   const unpaid=famUnpaid(f); const paidMonths=famPaidMonths(f); const bal=famBalance(f);
   const dueMonths = famDueMonths(f);
-  const dueAmt = unpaid.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+  const dueAmt = unpaid.reduce((s,m)=>s+famOutstanding(f,m),0);
   const phones = [f.phone, f.phone2].filter(Boolean).join(" • ");
   document.getElementById("fam-detail-view").innerHTML = `
     <button class="back-btn" onclick="showFamList()">◄ رجوع</button>
@@ -452,7 +464,7 @@ function renderFamDetail(id){
       ${f.startDate?`<div style="color:#fcd34d;font-size:12px;margin-top:4px">📅 بداية الاستحقاق: ${monthLabel(f.startDate)}</div>`:""}
     </div>
     <div class="cards" style="margin-bottom:14px">
-      ${card("الأفراد","👤","#3b82f6",1+(f.children||[]).length,"")}
+      ${card("الأفراد حالياً","👤","#3b82f6",famCurrentMemberCount(f),"")}
       ${card("اشتراك شهري","💵","#22c55e",fmtMoney(famFee(f)),"")}
       ${card("شهور مدفوعة","✅","#8b5cf6",paidMonths.length+" / "+dueMonths.length+" شهر","")}
       ${card("رصيد الحساب","💰","#"+(bal>=0?"22c55e":"ef4444"),fmtMoney(Math.abs(bal)),bal>=0?"✓ لا متأخرات":"⚠️ متأخر")}
@@ -475,8 +487,9 @@ function renderFamDetail(id){
              <span>👤 ${c.name}</span>
              <div>
                <span class="badge badge-blue" style="font-size:10px">${cs?monthLabel(cs):"—"}</span>
-               ${c.endDate?`<span class="badge badge-red" style="font-size:10px">متوقف بعد ${monthLabel(c.endDate)}</span>`:""}
-               <button class="btn btn-sm" style="background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)" onclick="promoteChild('${f.id}','${c.id}')">📤 نقل</button>
+                ${c.endDate?`<span class="badge badge-red" style="font-size:10px">آخر شهر: ${monthLabel(c.endDate)}</span>`:""}
+                <button class="btn btn-sm" style="background:rgba(245,158,11,.12);color:#fcd34d;border:1px solid rgba(245,158,11,.3)" onclick="editChildDates('${f.id}','${c.id}')">✏️ ${c.endDate?"تعديل":"إيقاف"}</button>
+                <button class="btn btn-sm" style="background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)" onclick="promoteChild('${f.id}','${c.id}')">📤 نقل</button>
              </div>
            </div>
            <div style="color:#6b7a99;font-size:11px;margin-top:4px">بداية الاستحقاق: ${cs?monthLabel(cs):"—"}${c.endDate?" • آخر شهر: "+monthLabel(c.endDate):""}</div>
@@ -492,11 +505,11 @@ function renderFamDetail(id){
     ${unpaid.length>0?`<div class="info-box info-red">
       <div style="color:#fca5a5;font-weight:700;font-size:13px;margin-bottom:6px">⚠️ شهور غير مدفوعة (${unpaid.length}) بقيمة ${fmtMoney(dueAmt)}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${unpaid.map(k=>`<span class="badge badge-red">${monthLabel(k)} (${fmtMoney(famFeeForMonth(f,k))})</span>`).join("")}
+        ${unpaid.map(k=>`<span class="badge badge-red">${monthLabel(k)} (المتبقي ${fmtMoney(famOutstanding(f,k))})</span>`).join("")}
       </div>
     </div>`:"<div class='info-box info-green' style='margin-bottom:12px'><div style='color:#86efac;font-weight:700'>✓ جميع الشهور مدفوعة!</div></div>"}
     ${unpaid.length>0 && (f.whatsapp||f.phone) ? `<button class="btn" style="background:linear-gradient(135deg,#25d366,#128c4a);color:#fff" onclick="sendWhatsAppReminder('${f.id}')">📱 إرسال تذكير واتساب</button>` : ""}
-    ${paidMonths.length?`<div class="section" style="margin-top:12px"><div class="section-title">دفعات مسجلة — اضغط إلغاء عند الخطأ</div><div style="display:flex;flex-wrap:wrap;gap:6px">${paidMonths.sort().map(m=>`<button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.3)" onclick="cancelPayment('${f.id}','${m}')">↩ ${monthLabel(m)} (${fmtMoney(f.payments[m].amount)})</button>`).join("")}</div></div>`:""}
+    ${paymentHistoryHtml(f)}
     <div class="btn-row" style="margin-top:8px">
       <button class="btn btn-green" onclick="openPayModal('${f.id}')">💳 تسجيل دفع</button>
       <button class="btn btn-blue" onclick="showFamEdit('${f.id}')">✏️ تعديل</button>
@@ -504,12 +517,62 @@ function renderFamDetail(id){
   `;
 }
 
-function cancelPayment(famId, monthKey){
+function paymentHistoryHtml(f){
+  const history = f.paymentHistory||[];
+  const legacyMonths = Object.keys(f.payments||{}).filter(m=>!history.some(h=>(h.allocations||[]).some(a=>a.month===m))).sort().reverse();
+  if(!history.length&&!legacyMonths.length) return "";
+  const latest = history[history.length-1];
+  return `<div class="section" style="margin-top:12px">
+    <div class="section-title">🧾 الدفعات المسجلة</div>
+    ${latest?`<div class="info-box info-amber" style="margin-bottom:10px">
+      <div style="color:#fcd34d;font-weight:700;font-size:13px">آخر عملية: ${fmtMoney(latest.cash||0)} نقداً • ${fmtDate(latest.date)}</div>
+      <div style="color:#92a0b8;font-size:11px;margin:5px 0">${(latest.allocations||[]).map(a=>monthLabel(a.month)+" "+fmtMoney(a.amount)).join("، ")}</div>
+      <button class="btn btn-sm" style="background:rgba(239,68,68,.14);color:#fca5a5;border:1px solid rgba(239,68,68,.3)" onclick="undoLastPayment('${f.id}')">↩️ التراجع عن آخر عملية دفع</button>
+    </div>`:""}
+    ${legacyMonths.length?`<div style="color:#8899bb;font-size:11px;margin-bottom:6px">دفعات قديمة — يمكن إلغاء الشهر عند الإدخال الخاطئ:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${legacyMonths.map(m=>`<button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.3)" onclick="cancelLegacyPayment('${f.id}','${m}')">↩ ${monthLabel(m)} (${fmtMoney(famPaidAmount(f,m))})</button>`).join("")}</div>`:""}
+  </div>`;
+}
+function undoLastPayment(famId){
+  const f = db.families.find(x=>x.id===famId); const history=f?.paymentHistory||[];
+  const tx=history[history.length-1]; if(!f||!tx) return;
+  if(!confirm("هل تريد التراجع عن آخر عملية دفع بقيمة "+fmtMoney(tx.cash||0)+"؟\nسيعود رصيد الأشهر والرصيد المعلق كما كانا قبل العملية.")) return;
+  for(const a of tx.allocations||[]){
+    if(!f.payments?.[a.month]) continue;
+    f.payments[a.month].amount=Math.max(0,Number(f.payments[a.month].amount||0)-Number(a.amount||0));
+    if(f.payments[a.month].amount<=0.0001) delete f.payments[a.month];
+  }
+  f.credit=Math.max(0,Number(f.credit||0)+Number(tx.creditUsed||0)-Number(tx.creditCreated||0));
+  f.paymentHistory.pop();
+  save(); showFamDetail(famId); showToast("تم التراجع عن آخر عملية ✓");
+}
+function cancelLegacyPayment(famId, monthKey){
   const f = db.families.find(x=>x.id===famId); if(!f||!f.payments?.[monthKey]) return;
-  if(!confirm("إلغاء دفعة "+monthLabel(monthKey)+" بقيمة "+fmtMoney(f.payments[monthKey].amount)+"؟")) return;
+  if(!confirm("إلغاء مبلغ "+monthLabel(monthKey)+" بقيمة "+fmtMoney(famPaidAmount(f,monthKey))+"؟")) return;
   delete f.payments[monthKey];
-  db.families = db.families.map(x=>x.id===famId?f:x);
   save(); showFamDetail(famId); showToast("تم إلغاء الدفعة ✓");
+}
+function editChildDates(famId, childId){
+  const f=db.families.find(x=>x.id===famId);
+  const child=f?.children?.find(c=>c.id===childId);
+  if(!f||!child) return;
+  openModal("memberEdit",{famId,childId});
+}
+function saveChildDates(){
+  const famId=document.getElementById("member-family-id")?.value;
+  const childId=document.getElementById("member-child-id")?.value;
+  const start=document.getElementById("member-start")?.value.trim();
+  const end=document.getElementById("member-end")?.value.trim();
+  if(!isMonthKey(start)||!(!end||isMonthKey(end))||(end&&end<start)){
+    showToast("تحقق من تاريخ البداية وآخر شهر",true); return;
+  }
+  const f=db.families.find(x=>x.id===famId);
+  const child=f?.children?.find(c=>c.id===childId);
+  if(!f||!child) return;
+  child.startDate=start;
+  if(end) child.endDate=end; else delete child.endDate;
+  save(); closeModal(); showFamDetail(famId);
+  showToast(end?"تم إيقاف احتساب العضو بعد "+monthLabel(end)+" ✓":"تم تفعيل العضو ✓");
 }
 
 function renderFamEdit(id){
@@ -616,14 +679,17 @@ function famForm(existing){
     </div>
   </div>
   <div class="info-box info-purple">
-    <div style="color:#c4b5fd;font-weight:700;margin-bottom:10px;font-size:14px">👨‍👩‍👧 الأبناء</div>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <input id="ff-child" placeholder="اسم الابن / البنت" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;color:#e8f0ff;outline:none"/>
-      <input id="ff-child-start" placeholder="بداية YYYY-MM" style="width:105px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px;color:#e8f0ff;outline:none" value="${nowKey()}"/>
-      <input id="ff-child-end" placeholder="آخر شهر (اختياري)" style="width:115px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px;color:#e8f0ff;outline:none"/>
-      <input id="ff-child-paid" placeholder="مدفوع حتى (اختياري)" style="width:120px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px;color:#e8f0ff;outline:none"/>
-      <button class="btn btn-purple btn-sm" onclick="addChild()">إضافة</button>
+    <div style="color:#c4b5fd;font-weight:700;margin-bottom:10px;font-size:14px">👨‍👩‍👧 الأعضاء التابعون</div>
+    <div class="field-row">
+      <div class="field"><label>اسم العضو</label><input id="ff-child" placeholder="الاسم"/></div>
+      <div class="field"><label>بداية الاستحقاق</label><input id="ff-child-start" placeholder="YYYY-MM" value="${nowKey()}"/></div>
     </div>
+    <div class="field-row">
+      <div class="field"><label>آخر شهر مستحق</label><input id="ff-child-end" placeholder="YYYY-MM أو اتركه فارغاً"/></div>
+      <div class="field"><label>مدفوع حتى</label><input id="ff-child-paid" placeholder="YYYY-MM أو اتركه فارغاً"/></div>
+    </div>
+    <div style="color:#92a0b8;font-size:11px;margin:-4px 0 10px">«آخر شهر مستحق»: إذا أردت إيقاف التحصيل من مايو، اكتب 2026-04. «مدفوع حتى» يضيف اشتراك العضو عن الأشهر السابقة مرة واحدة.</div>
+    <button class="btn btn-purple btn-sm" style="margin-bottom:10px" onclick="addChild()">+ إضافة عضو</button>
     <div id="children-list">${renderChildrenList()}</div>
   </div>
   <div class="field"><label>ملاحظات</label><input id="ff-notes" value="${f.notes||""}"/></div>
@@ -637,10 +703,13 @@ function renderChildrenList(){
     <div>
       <span>👤 ${c.name}</span>
        <span class="badge badge-blue" style="font-size:10px">${c.startDate||"بدون تاريخ"}</span>
-       ${c.endDate?`<span class="badge badge-red" style="font-size:10px">حتى ${c.endDate}</span>`:""}
-       ${c.paidThrough?`<span class="badge badge-green" style="font-size:10px">مدفوع حتى ${c.paidThrough}</span>`:""}
-    </div>
-    <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="removeChild(${i})">حذف</button>
+        ${c.endDate?`<span class="badge badge-red" style="font-size:10px">آخر شهر ${c.endDate}</span>`:""}
+        ${c.paidThrough?`<span class="badge badge-green" style="font-size:10px">مدفوع حتى ${c.paidThrough}</span>`:""}
+     </div>
+     <div>
+       <button class="btn btn-sm" style="background:rgba(245,158,11,.12);color:#fcd34d;border:1px solid rgba(245,158,11,.3)" onclick="editTempChild(${i})">✏️</button>
+       <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="removeChild(${i})">حذف</button>
+     </div>
   </div>`).join("");
 }
 
@@ -650,10 +719,12 @@ function addChild(){
   const sd = document.getElementById("ff-child-start").value.trim()||nowKey();
   const ed = document.getElementById("ff-child-end").value.trim();
   const paid = document.getElementById("ff-child-paid").value.trim();
+  if(!isMonthKey(sd)||!(!ed||isMonthKey(ed))||!(!paid||isMonthKey(paid))){ showToast("اكتب التاريخ بالشكل YYYY-MM",true); return; }
   if(ed && ed<sd){ showToast("آخر شهر لا يمكن أن يكون قبل البداية",true); return; }
   if(paid && paid<sd){ showToast("شهر الدفع لا يمكن أن يكون قبل البداية",true); return; }
+  if(ed && paid && paid>ed){ showToast("لا يمكن أن يكون «مدفوع حتى» بعد آخر شهر مستحق",true); return; }
   tempChildren.push({id:genId(),name:n,startDate:sd,endDate:ed,paidThrough:paid});
-  inp.value="";
+  inp.value=""; document.getElementById("ff-child-end").value=""; document.getElementById("ff-child-paid").value="";
   document.getElementById("children-list").innerHTML = renderChildrenList();
   updateMonthlyPreview();
 }
@@ -662,9 +733,16 @@ function removeChild(i){
   document.getElementById("children-list").innerHTML = renderChildrenList();
   updateMonthlyPreview();
 }
+function editTempChild(i){
+  const c=tempChildren[i]; if(!c) return;
+  const start=prompt("بداية الاستحقاق (YYYY-MM):",c.startDate||nowKey()); if(start===null) return;
+  const end=prompt("آخر شهر مستحق (اتركه فارغاً للاستمرار):",c.endDate||""); if(end===null) return;
+  if(!isMonthKey(start)||!(!end||isMonthKey(end))||(end&&end<start)){ showToast("تحقق من تواريخ العضو",true); return; }
+  c.startDate=start; c.endDate=end; document.getElementById("children-list").innerHTML=renderChildrenList(); updateMonthlyPreview();
+}
 function updateMonthlyPreview(){
   const el = document.getElementById("monthly-preview");
-  if(el) el.textContent = "الاشتراك الشهري: "+fmtMoney(FEE*(1+tempChildren.length))+" ("+(1+tempChildren.length)+" أفراد × "+FEE+" د.ل)";
+  if(el){ const n=1+tempChildren.filter(c=>!c.endDate||c.endDate>=nowKey()).length; el.textContent = "الاشتراك الشهري الحالي: "+fmtMoney(FEE*n)+" ("+n+" أفراد × "+FEE+" د.ل)"; }
 }
 
 function collectFamForm(existing){
@@ -688,14 +766,41 @@ function collectFamForm(existing){
     credit: parseFloat((document.getElementById("ff-credit")||{value:0}).value)||0,
     children: JSON.parse(JSON.stringify(tempChildren)),
     payments: existing?.payments||{},
+    paymentHistory: existing?.paymentHistory||[],
     createdAt: existing?.createdAt||new Date().toISOString()
   };
+}
+function applyNewMemberPayments(f, existing){
+  f.payments=JSON.parse(JSON.stringify(f.payments||{}));
+  f.paymentHistory=JSON.parse(JSON.stringify(f.paymentHistory||[]));
+  const oldIds=new Set((existing?.children||[]).map(c=>c.id));
+  const nowIso=new Date().toISOString();
+  for(const child of f.children){
+    if(oldIds.has(child.id)||!child.paidThrough||child.openingPaymentRecorded) continue;
+    const last=child.endDate&&child.endDate<child.paidThrough?child.endDate:child.paidThrough;
+    const allocations=monthsBetween(child.startDate,last).map(month=>({month,amount:FEE}));
+    if(!allocations.length) continue;
+    for(const a of allocations){
+      const entry=f.payments[a.month]||{date:nowIso,amount:0};
+      entry.amount=Number(entry.amount||0)+a.amount;
+      entry.date=nowIso;
+      f.payments[a.month]=entry;
+    }
+    child.openingPaymentRecorded=true;
+    f.paymentHistory.push({
+      id:genId(),date:nowIso,allocations,
+      cash:allocations.reduce((s,a)=>s+a.amount,0),
+      creditUsed:0,creditCreated:0,type:"member-opening",
+      note:"اشتراك سابق للعضو "+child.name
+    });
+  }
 }
 
 function saveFamNew(){
   const f = collectFamForm(null); if(!f) return;
   const dup = db.families.find(x=>x.name===f.name && x.phone===f.phone);
   if(dup){ showToast("يوجد أسرة بنفس الاسم والهاتف!",true); return; }
+  applyNewMemberPayments(f, null);
   db.families.push(f); save();
   tempChildren = [];
   closeModal(); renderFamilies();
@@ -704,28 +809,7 @@ function saveFamNew(){
 function saveFamEdit(id){
   const existing = db.families.find(x=>x.id===id);
   const f = collectFamForm(existing); if(!f) return;
-  const payments = JSON.parse(JSON.stringify(existing.payments||{}));
-  for(const child of f.children){
-    const wasThere = (existing.children||[]).some(c=>c.id===child.id);
-    if(!wasThere && child.paidThrough){
-      const last = child.endDate && child.endDate<child.paidThrough ? child.endDate : child.paidThrough;
-      for(const month of monthsSince(child.startDate).filter(m=>m<=last)){
-        payments[month] = payments[month]||{date:new Date().toISOString(),amount:0};
-        payments[month].amount = Number(payments[month].amount||0)+FEE;
-      }
-    }
-  }
-  const totalPaid = Object.values(payments).reduce((s,p)=>s+Number(p.amount||0),0);
-  f.payments = {};
-  let remaining = totalPaid;
-  const dueMonths = famDueMonths(f);
-  for(const m of dueMonths){
-    const fee = famFeeForMonth(f, m);
-    if(remaining >= fee){ f.payments[m] = {date:new Date().toISOString(),amount:fee}; remaining -= fee; }
-    else if(remaining > 0){ f.payments[m] = {date:new Date().toISOString(),amount:remaining}; remaining = 0; break; }
-    else break;
-  }
-  if(remaining > 0) f.credit = (f.credit||0) + remaining;
+  applyNewMemberPayments(f, existing);
   db.families = db.families.map(x=>x.id===id?f:x); save();
   showFamDetail(id); showToast("تم التحديث ✓");
 }
@@ -760,8 +844,7 @@ function selectAllUnpaid(){
 function selectAllFuture(){
   const f = db.families.find(x=>x.id===payFamId); if(!f) return;
   const dueMonths = famDueMonths(f);
-  const paidMonths = Object.keys(f.payments||{});
-  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
+  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && famOutstanding(f,m)>0.0001);
   paySelected = paySelected.length===nextMonths.length && nextMonths.every(m=>paySelected.includes(m))?[]:JSON.parse(JSON.stringify(nextMonths));
   renderPayMonths();
   updatePaySummary();
@@ -769,20 +852,20 @@ function selectAllFuture(){
 
 function autoSelectMonths(){
   const f = db.families.find(x=>x.id===payFamId); if(!f) return;
-  const amt = parseFloat(document.getElementById("pay-amount").value)||0;
-  if(amt<=0) return;
+  const cash = parseFloat(document.getElementById("pay-amount").value)||0;
+  const available = cash+Number(f.credit||0);
+  if(available<=0) return;
   const dueMonths = famDueMonths(f);
-  const paidMonths = Object.keys(f.payments||{});
-  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
+  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && famOutstanding(f,m)>0.0001);
   const allAvail = [...famUnpaid(f), ...nextMonths];
-  let remaining = amt;
+  let remaining = available;
   paySelected = [];
   for(const m of allAvail){
-    const fee = famFeeForMonth(f, m);
-    if(remaining >= fee){
-      paySelected.push(m);
-      remaining -= fee;
-    } else break;
+    const needed = famOutstanding(f,m);
+    if(needed<=0) continue;
+    paySelected.push(m);
+    remaining -= needed;
+    if(remaining<=0) break;
   }
   renderPayMonths();
   updatePaySummary();
@@ -790,20 +873,21 @@ function autoSelectMonths(){
 
 function updatePaySummary(){
   const f = db.families.find(x=>x.id===payFamId); if(!f) return;
-  const total = paySelected.reduce((s,m)=>s+famFeeForMonth(f,m),0);
-  const paid = parseFloat(document.getElementById("pay-amount")?.value||0);
+  const total = paySelected.reduce((s,m)=>s+famOutstanding(f,m),0);
+  const paid = Math.max(0,parseFloat(document.getElementById("pay-amount")?.value||0));
   const credit = Number(f.credit||0);
-  document.getElementById("pay-total").textContent = paySelected.length>0?"الإجمالي: "+fmtMoney(total):"";
+  document.getElementById("pay-total").textContent = paySelected.length>0?"المتبقي للأشهر المختارة: "+fmtMoney(total):"";
   const rem = document.getElementById("pay-remainder");
   if(total > 0 && paySelected.length>0){
-    const afterCredit = Math.max(0, total - credit);
-    if(paid >= afterCredit){
-      const over = paid - afterCredit;
-      rem.textContent = over>0?"💰 المتبقي كرصيد معلق: "+fmtMoney(over):"✓ مسدد بالكامل (بما في ذلك "+fmtMoney(Math.min(credit,total))+" من الرصيد المعلق)";
+    const creditUsed=Math.min(credit,Math.max(0,total-paid));
+    const covered=paid+creditUsed;
+    if(covered >= total){
+      const over = Math.max(0,paid-total);
+      rem.textContent = over>0?"💰 سيُحفظ "+fmtMoney(over)+" كرصيد معلق":"✓ ستُسدّد الأشهر المختارة بالكامل";
       rem.style.color = "#86efac";
     } else {
-      const need = afterCredit - paid;
-      rem.textContent = "⚠️ المبلغ المطلوب: "+fmtMoney(need)+" (الرصيد المعلق: "+fmtMoney(credit)+")";
+      const need = total-covered;
+      rem.textContent = "⚠️ دفع جزئي: سيبقى "+fmtMoney(need)+" مستحقاً";
       rem.style.color = "#fca5a5";
     }
     rem.style.display="block";
@@ -1444,6 +1528,19 @@ function openModal(type, data){
     tempChildren = [];
     body.innerHTML = famForm(null);
     updateMonthlyPreview();
+  } else if(type==="memberEdit"){
+    const f=db.families.find(x=>x.id===data.famId);
+    const child=f?.children?.find(c=>c.id===data.childId);
+    if(!f||!child){ closeModal(); return; }
+    title.textContent="✏️ تعديل / إيقاف عضو";
+    body.innerHTML=`
+      <input id="member-family-id" type="hidden" value="${f.id}"/>
+      <input id="member-child-id" type="hidden" value="${child.id}"/>
+      <div class="info-box info-blue" style="margin-bottom:14px"><div style="color:#93c5fd;font-weight:800">👤 ${child.name}</div><div style="color:#92a0b8;font-size:12px;margin-top:5px">لتوقيف التحصيل من شهر معيّن، اكتب الشهر السابق له في «آخر شهر مستحق». مثال: للإيقاف من مايو اكتب 2026-04.</div></div>
+      <div class="field"><label>بداية الاستحقاق (YYYY-MM)</label><input id="member-start" value="${child.startDate||f.startDate||nowKey()}" placeholder="2026-01"/></div>
+      <div class="field"><label>آخر شهر مستحق (اتركه فارغاً لإعادة التفعيل)</label><input id="member-end" value="${child.endDate||""}" placeholder="2026-04"/></div>
+      <button class="btn btn-amber" onclick="saveChildDates()">💾 حفظ حالة العضو</button>
+    `;
   } else if(type==="payment"){
     const f = data;
     const unpaid = famUnpaid(f); const bal = famBalance(f);
