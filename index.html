@@ -230,7 +230,7 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.5.2";
 const PIN_KEY = "sub_pin";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
@@ -251,21 +251,6 @@ try{
   const pv=localStorage.getItem("sub_app_ver");
   if(pv!==APP_VERSION){ const raw=localStorage.getItem(STORE); if(raw) localStorage.setItem("sub_v4_backup_"+(pv||"old"),raw); localStorage.setItem("sub_app_ver",APP_VERSION); }
 }catch(e){}
-function migrateLegacyMember(){
-  try{
-    if(!db.migrations) db.migrations={};
-    if(db.migrations.abi_salem_v2) return;
-    const f = db.families.find(x=>(x.name||"").trim()==="سالم مصطفى") || db.families.find(x=>(x.name||"").includes("سالم مصطفى"));
-    if(!f) return;
-    f.children = f.children||[];
-    let c = f.children.find(x=>(x.name||"").trim()==="أبي");
-    if(!c){ c={id:genId(),name:"أبي",startDate:f.startDate||db.settings.startDate||nowKey()}; f.children.push(c); }
-    if(!c.endDate) c.endDate="2026-05";
-    db.migrations.abi_salem_v2 = true;
-    save();
-    setTimeout(()=>showToast("تم إيقاف احتساب أبي بعد 2026-05 ✓"),400);
-  }catch(e){ console.error(e); }
-}
 
 function load(){
   try{ const d=localStorage.getItem(STORE); return d?JSON.parse(d):blankDb(); }catch{ return blankDb(); }
@@ -568,6 +553,13 @@ function undoPayment(famId, txId){
   f.credit=Math.max(0,Number(f.credit||0)+Number(tx.creditUsed||0)-Number(tx.creditCreated||0));
   f.paymentHistory=f.paymentHistory.filter(h=>h.id!==txId);
   save(); showFamDetail(famId); showToast("تم التراجع عن العملية ✓");
+}
+function cancelMonthPayment(famId, m){
+  const f=db.families.find(x=>x.id===famId); if(!f||!f.payments?.[m]) return;
+  if(!confirm("إلغاء دفع شهر "+monthLabel(m)+" بقيمة "+fmtMoney(famPaidAmount(f,m))+"؟\nسيعود الشهر غير مدفوع ولن يتغير الرصيد المعلق.")) return;
+  delete f.payments[m];
+  f.paymentHistory=(f.paymentHistory||[]).map(h=>({...h,allocations:(h.allocations||[]).filter(a=>a.month!==m)})).filter(h=>(h.allocations||[]).length||h.creditCreated>0);
+  save(); closeModal(); showFamDetail(famId); showToast("تم إلغاء دفع الشهر ✓");
 }
 function undoLastPayment(famId){
   const h=(db.families.find(x=>x.id===famId)?.paymentHistory||[]); if(h.length) undoPayment(famId,h[h.length-1].id);
@@ -1615,8 +1607,8 @@ function openModal(type, data){
       </div>
       ${allAvail.length===0?`<div style="text-align:center;color:#22c55e;padding:20px;font-weight:700">✓ جميع الشهور مدفوعة!</div>`:`<div id="pay-months"></div>`}
       ${Object.keys(f.payments||{}).length>0?`<div style="margin-bottom:14px">
-        <div style="color:#6b7a99;font-size:12px;margin-bottom:6px">✓ مدفوع (${Object.keys(f.payments).length} شهر)</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px">${Object.keys(f.payments).sort().map(k=>`<span class="badge badge-green">${monthLabel(k)}</span>`).join("")}</div>
+        <div style="color:#6b7a99;font-size:12px;margin-bottom:6px">✓ مدفوع (${Object.keys(f.payments).length} شهر) — اضغط على الشهر لإلغاء دفعه</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${Object.keys(f.payments).sort().map(k=>`<button class="badge badge-green" style="border:none;cursor:pointer" onclick="cancelMonthPayment('${f.id}','${k}')">${monthLabel(k)} ✕</button>`).join("")}</div>
       </div>`:""}
       <div id="pay-total" style="text-align:center;color:#e8d5a3;font-weight:800;font-size:16px;background:rgba(232,213,163,.1);border-radius:10px;padding:10px;margin-bottom:12px;display:${allAvail.length>0?"block":"none"}"></div>
       <div id="pay-remainder" style="text-align:center;color:#86efac;font-weight:700;font-size:14px;margin-bottom:8px"></div>
@@ -1729,7 +1721,6 @@ function showToast(msg, err){
 // ============================================================
 // INIT
 // ============================================================
-migrateLegacyMember();
 initPinLock();
 initConnectivity();
 initSwUpdate();

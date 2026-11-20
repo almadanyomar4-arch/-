@@ -1,4 +1,4 @@
-const CACHE_NAME = "sub-cache-v1.5.0";
+const CACHE_NAME = "sub-cache-v1.5.2";
 const CORE_ASSETS = ["./", "./index.html", "./manifest.json"];
 
 self.addEventListener("install", (e) => {
