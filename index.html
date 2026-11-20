@@ -230,7 +230,7 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.5.2";
+const APP_VERSION = "1.5.3";
 const PIN_KEY = "sub_pin";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
@@ -493,6 +493,7 @@ function renderFamDetail(id){
                <span class="badge badge-blue" style="font-size:10px">${cs?monthLabel(cs):"—"}</span>
                 ${c.endDate?`<span class="badge badge-red" style="font-size:10px">آخر شهر: ${monthLabel(c.endDate)}</span>`:""}
                 <button class="btn btn-sm" style="background:rgba(245,158,11,.12);color:#fcd34d;border:1px solid rgba(245,158,11,.3)" onclick="editChildDates('${f.id}','${c.id}')">✏️ ${c.endDate?"تعديل":"إيقاف"}</button>
+                <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="deleteMember('${f.id}','${c.id}')">🗑 حذف</button>
                 <button class="btn btn-sm" style="background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)" onclick="promoteChild('${f.id}','${c.id}')">📤 نقل</button>
              </div>
            </div>
@@ -560,6 +561,12 @@ function cancelMonthPayment(famId, m){
   delete f.payments[m];
   f.paymentHistory=(f.paymentHistory||[]).map(h=>({...h,allocations:(h.allocations||[]).filter(a=>a.month!==m)})).filter(h=>(h.allocations||[]).length||h.creditCreated>0);
   save(); closeModal(); showFamDetail(famId); showToast("تم إلغاء دفع الشهر ✓");
+}
+function deleteMember(famId, childId){
+  const f=db.families.find(x=>x.id===famId); const c=f?.children?.find(x=>x.id===childId); if(!c) return;
+  if(!confirm("حذف العضو «"+c.name+"» نهائياً من هذه الأسرة؟\nسيُعاد احتساب المستحقات بدونه.")) return;
+  f.children=f.children.filter(x=>x.id!==childId);
+  save(); showFamDetail(famId); showToast("تم حذف العضو ✓");
 }
 function undoLastPayment(famId){
   const h=(db.families.find(x=>x.id===famId)?.paymentHistory||[]); if(h.length) undoPayment(famId,h[h.length-1].id);
@@ -1671,7 +1678,7 @@ function openModal(type, data){
   }
 }
 
-function closeModal(){ document.getElementById("modal-overlay").classList.remove("open"); }
+function closeModal(){ document.getElementById("modal-overlay").classList.remove("open"); const b=document.getElementById("modal-body"); if(b) b.innerHTML=""; }
 
 let lastReceipt = "";
 function copyReceipt(){
