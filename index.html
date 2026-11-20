@@ -230,7 +230,7 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.4.3";
+const APP_VERSION = "1.4.4";
 const PIN_KEY = "sub_pin";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
@@ -270,7 +270,11 @@ function famPaidMonths(f){ return Object.keys(f.payments||{}); }
 
 function famActiveCount(f, monthKey){
   let c = monthKey>=(f.startDate||"0000-00")?1:0;
-  for(const ch of (f.children||[])){ if(monthKey>=(ch.startDate||f.startDate||"0000-00")) c++; }
+  for(const ch of (f.children||[])){
+    const starts = monthKey >= (ch.startDate||f.startDate||"0000-00");
+    const notStopped = !ch.endDate || monthKey <= ch.endDate;
+    if(starts && notStopped) c++;
+  }
   return c;
 }
 function famFeeForMonth(f, monthKey){ return FEE*famActiveCount(f, monthKey); }
@@ -467,14 +471,15 @@ function renderFamDetail(id){
         const cDue = monthsSince(cs||"0000-00").filter(m=>m<=dueMonths[dueMonths.length-1]);
         const cPaid = paidMonths.filter(m=>famActiveCount(f,m)>1);
         return `<div class="child-item" style="flex-direction:column;align-items:stretch">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <span>👤 ${c.name}</span>
-            <div>
-              <span class="badge badge-blue" style="font-size:10px">${cs?monthLabel(cs):"—"}</span>
-              <button class="btn btn-sm" style="background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)" onclick="promoteChild('${f.id}','${c.id}')">📤 نقل</button>
-            </div>
-          </div>
-          <div style="color:#6b7a99;font-size:11px;margin-top:4px">بداية الاستحقاق: ${cs?monthLabel(cs):"—"}</div>
+           <div style="display:flex;justify-content:space-between;align-items:center">
+             <span>👤 ${c.name}</span>
+             <div>
+               <span class="badge badge-blue" style="font-size:10px">${cs?monthLabel(cs):"—"}</span>
+               ${c.endDate?`<span class="badge badge-red" style="font-size:10px">متوقف بعد ${monthLabel(c.endDate)}</span>`:""}
+               <button class="btn btn-sm" style="background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.25)" onclick="promoteChild('${f.id}','${c.id}')">📤 نقل</button>
+             </div>
+           </div>
+           <div style="color:#6b7a99;font-size:11px;margin-top:4px">بداية الاستحقاق: ${cs?monthLabel(cs):"—"}${c.endDate?" • آخر شهر: "+monthLabel(c.endDate):""}</div>
         </div>`;
       }).join("")}
     </div>`:""}
@@ -491,11 +496,20 @@ function renderFamDetail(id){
       </div>
     </div>`:"<div class='info-box info-green' style='margin-bottom:12px'><div style='color:#86efac;font-weight:700'>✓ جميع الشهور مدفوعة!</div></div>"}
     ${unpaid.length>0 && (f.whatsapp||f.phone) ? `<button class="btn" style="background:linear-gradient(135deg,#25d366,#128c4a);color:#fff" onclick="sendWhatsAppReminder('${f.id}')">📱 إرسال تذكير واتساب</button>` : ""}
+    ${paidMonths.length?`<div class="section" style="margin-top:12px"><div class="section-title">دفعات مسجلة — اضغط إلغاء عند الخطأ</div><div style="display:flex;flex-wrap:wrap;gap:6px">${paidMonths.sort().map(m=>`<button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.3)" onclick="cancelPayment('${f.id}','${m}')">↩ ${monthLabel(m)} (${fmtMoney(f.payments[m].amount)})</button>`).join("")}</div></div>`:""}
     <div class="btn-row" style="margin-top:8px">
       <button class="btn btn-green" onclick="openPayModal('${f.id}')">💳 تسجيل دفع</button>
       <button class="btn btn-blue" onclick="showFamEdit('${f.id}')">✏️ تعديل</button>
     </div>
   `;
+}
+
+function cancelPayment(famId, monthKey){
+  const f = db.families.find(x=>x.id===famId); if(!f||!f.payments?.[monthKey]) return;
+  if(!confirm("إلغاء دفعة "+monthLabel(monthKey)+" بقيمة "+fmtMoney(f.payments[monthKey].amount)+"؟")) return;
+  delete f.payments[monthKey];
+  db.families = db.families.map(x=>x.id===famId?f:x);
+  save(); showFamDetail(famId); showToast("تم إلغاء الدفعة ✓");
 }
 
 function renderFamEdit(id){
@@ -605,7 +619,9 @@ function famForm(existing){
     <div style="color:#c4b5fd;font-weight:700;margin-bottom:10px;font-size:14px">👨‍👩‍👧 الأبناء</div>
     <div style="display:flex;gap:8px;margin-bottom:10px">
       <input id="ff-child" placeholder="اسم الابن / البنت" style="flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;color:#e8f0ff;outline:none"/>
-      <input id="ff-child-start" placeholder="YYYY-MM تاريخ البداية" style="width:120px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px 12px;color:#e8f0ff;outline:none" value="${nowKey()}"/>
+      <input id="ff-child-start" placeholder="بداية YYYY-MM" style="width:105px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px;color:#e8f0ff;outline:none" value="${nowKey()}"/>
+      <input id="ff-child-end" placeholder="آخر شهر (اختياري)" style="width:115px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px;color:#e8f0ff;outline:none"/>
+      <input id="ff-child-paid" placeholder="مدفوع حتى (اختياري)" style="width:120px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:8px;color:#e8f0ff;outline:none"/>
       <button class="btn btn-purple btn-sm" onclick="addChild()">إضافة</button>
     </div>
     <div id="children-list">${renderChildrenList()}</div>
@@ -620,7 +636,9 @@ function renderChildrenList(){
   return tempChildren.map((c,i)=>`<div class="child-item" style="display:flex;justify-content:space-between;align-items:center">
     <div>
       <span>👤 ${c.name}</span>
-      <span class="badge badge-blue" style="font-size:10px">${c.startDate||"بدون تاريخ"}</span>
+       <span class="badge badge-blue" style="font-size:10px">${c.startDate||"بدون تاريخ"}</span>
+       ${c.endDate?`<span class="badge badge-red" style="font-size:10px">حتى ${c.endDate}</span>`:""}
+       ${c.paidThrough?`<span class="badge badge-green" style="font-size:10px">مدفوع حتى ${c.paidThrough}</span>`:""}
     </div>
     <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.25)" onclick="removeChild(${i})">حذف</button>
   </div>`).join("");
@@ -630,7 +648,11 @@ function addChild(){
   const inp = document.getElementById("ff-child");
   const n = inp.value.trim(); if(!n) return;
   const sd = document.getElementById("ff-child-start").value.trim()||nowKey();
-  tempChildren.push({id:genId(),name:n,startDate:sd});
+  const ed = document.getElementById("ff-child-end").value.trim();
+  const paid = document.getElementById("ff-child-paid").value.trim();
+  if(ed && ed<sd){ showToast("آخر شهر لا يمكن أن يكون قبل البداية",true); return; }
+  if(paid && paid<sd){ showToast("شهر الدفع لا يمكن أن يكون قبل البداية",true); return; }
+  tempChildren.push({id:genId(),name:n,startDate:sd,endDate:ed,paidThrough:paid});
   inp.value="";
   document.getElementById("children-list").innerHTML = renderChildrenList();
   updateMonthlyPreview();
@@ -682,7 +704,18 @@ function saveFamNew(){
 function saveFamEdit(id){
   const existing = db.families.find(x=>x.id===id);
   const f = collectFamForm(existing); if(!f) return;
-  const totalPaid = Object.values(existing.payments||{}).reduce((s,p)=>s+Number(p.amount||0),0);
+  const payments = JSON.parse(JSON.stringify(existing.payments||{}));
+  for(const child of f.children){
+    const wasThere = (existing.children||[]).some(c=>c.id===child.id);
+    if(!wasThere && child.paidThrough){
+      const last = child.endDate && child.endDate<child.paidThrough ? child.endDate : child.paidThrough;
+      for(const month of monthsSince(child.startDate).filter(m=>m<=last)){
+        payments[month] = payments[month]||{date:new Date().toISOString(),amount:0};
+        payments[month].amount = Number(payments[month].amount||0)+FEE;
+      }
+    }
+  }
+  const totalPaid = Object.values(payments).reduce((s,p)=>s+Number(p.amount||0),0);
   f.payments = {};
   let remaining = totalPaid;
   const dueMonths = famDueMonths(f);
