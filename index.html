@@ -230,7 +230,7 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.4.5";
+const APP_VERSION = "1.5.0";
 const PIN_KEY = "sub_pin";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
@@ -247,17 +247,23 @@ function blankDb(){
 }
 
 let db = load();
+try{
+  const pv=localStorage.getItem("sub_app_ver");
+  if(pv!==APP_VERSION){ const raw=localStorage.getItem(STORE); if(raw) localStorage.setItem("sub_v4_backup_"+(pv||"old"),raw); localStorage.setItem("sub_app_ver",APP_VERSION); }
+}catch(e){}
 function migrateLegacyMember(){
   try{
     if(!db.migrations) db.migrations={};
-    if(db.migrations.abi_salem_v1) return;
+    if(db.migrations.abi_salem_v2) return;
     const f = db.families.find(x=>(x.name||"").trim()==="سالم مصطفى") || db.families.find(x=>(x.name||"").includes("سالم مصطفى"));
     if(!f) return;
     f.children = f.children||[];
-    if(!f.children.some(c=>c.name==="أبي")) f.children.push({id:genId(),name:"أبي",startDate:f.startDate||db.settings.startDate||nowKey(),endDate:"2026-05"});
-    db.migrations.abi_salem_v1 = true;
+    let c = f.children.find(x=>(x.name||"").trim()==="أبي");
+    if(!c){ c={id:genId(),name:"أبي",startDate:f.startDate||db.settings.startDate||nowKey()}; f.children.push(c); }
+    if(!c.endDate) c.endDate="2026-05";
+    db.migrations.abi_salem_v2 = true;
     save();
-    setTimeout(()=>showToast("تمت إضافة العضو أبي إلى أسرة سالم مصطفى (حتى 2026-05) ✓"),400);
+    setTimeout(()=>showToast("تم إيقاف احتساب أبي بعد 2026-05 ✓"),400);
   }catch(e){ console.error(e); }
 }
 
@@ -316,9 +322,8 @@ function famTotalPaid(f){ return Object.values(f.payments||{}).reduce((s,p)=>s+N
 function famBalance(f){ return famTotalPaid(f)+Number(f.carryOver||0)+Number(f.credit||0)-famTotalDue(f); }
 
 function monthsUntilYearEnd(){
-  const n=new Date();
-  const keys=[];
-  for(let m=n.getMonth()+1; m<=12; m++) keys.push(n.getFullYear()+"-"+String(m).padStart(2,"0"));
+  const n=new Date(), keys=[];
+  for(let i=1;i<=12;i++){ const d=new Date(n.getFullYear(),n.getMonth()+i,1); keys.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")); }
   return keys;
 }
 
@@ -378,6 +383,7 @@ function renderHome(){
     ${card("الأسر المسجلة","👥","#3b82f6",db.families.length,"")}
     ${card("إجمالي الأفراد","👤","#8b5cf6",t.members,"")}
     ${card("المحصّل","✅","#22c55e",fmtMoney(t.allPaid),"من "+fmtMoney(t.allDue))}
+    ${card("المتأخرات","⏳","#f97316",fmtMoney(db.families.reduce((s,f)=>s+famUnpaid(f).reduce((x,m)=>x+famOutstanding(f,m),0),0)),db.families.filter(f=>famUnpaid(f).length>0).length+" أسرة")}
     ${card("الرصيد المتاح","💰","#"+(bal>=0?"22c55e":"ef4444"),fmtMoney(bal),bal>=0?"✓ كافٍ":"⚠️ عجز")}
     ${card("المصروفات","💸","#ef4444",fmtMoney(t.expenses),"")}
     ${card("الرصيد المرحّل","🔄","#f59e0b",fmtMoney(Number(db.carryOver||0)+t.allCarry),"")}
@@ -389,7 +395,7 @@ function renderHome(){
     la.innerHTML = `<div class="info-box info-red" style="margin-bottom:14px">
       <div style="color:#fca5a5;font-weight:700;margin-bottom:8px">⚠️ ${late.length} أسرة لديها شهور متأخرة</div>
       ${late.slice(0,5).map(f=>{
-        const u=famUnpaid(f); const dueAmt=u.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+        const u=famUnpaid(f); const dueAmt=u.reduce((s,m)=>s+famOutstanding(f,m),0);
         return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px">
         <span style="color:#e0e8ff">${f.name}</span>
         <span style="color:#fca5a5">${u.length} شهر | ${fmtMoney(dueAmt)}</span>
@@ -439,13 +445,13 @@ function renderFamilies(){
   if(all.length===0){ el.innerHTML=`<div style="text-align:center;color:#4b5563;padding:40px 0">لا توجد نتائج</div>`; return; }
   el.innerHTML = all.map(f=>{
     const unpaid=famUnpaid(f); const bal=famBalance(f);
-    const dueAmt = unpaid.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+    const dueAmt = unpaid.reduce((s,m)=>s+famOutstanding(f,m),0);
     const phones = [f.phone, f.phone2].filter(Boolean).join(" • ");
     return `<div class="item ${unpaid.length>0?'late':''}" onclick="showFamDetail('${f.id}')">
       <div class="item-top">
         <div>
           <div class="item-name">${f.name}</div>
-          <div class="item-sub">${phones} • ${1+(f.children||[]).length} أفراد${f.startDate?" • من "+monthLabel(f.startDate):""}</div>
+          <div class="item-sub">${phones} • ${famCurrentMemberCount(f)} أفراد${f.startDate?" • من "+monthLabel(f.startDate):""}</div>
         </div>
         <div style="text-align:left">
           <span class="badge ${unpaid.length===0?'badge-green':'badge-red'}">${unpaid.length===0?"✓ محدّث":"⚠ "+unpaid.length+" شهر"}</span>
@@ -530,40 +536,59 @@ function renderFamDetail(id){
   `;
 }
 
+function legacyRemainder(f,m){
+  const al=(f.paymentHistory||[]).reduce((s,h)=>s+(h.allocations||[]).filter(a=>a.month===m).reduce((x,a)=>x+Number(a.amount||0),0),0);
+  return Math.max(0, famPaidAmount(f,m)-al);
+}
 function paymentHistoryHtml(f){
-  const history = f.paymentHistory||[];
-  const legacyMonths = Object.keys(f.payments||{}).filter(m=>!history.some(h=>(h.allocations||[]).some(a=>a.month===m))).sort().reverse();
-  if(!history.length&&!legacyMonths.length) return "";
-  const latest = history[history.length-1];
+  const hist=(f.paymentHistory||[]).slice().reverse();
+  const legacy=Object.keys(f.payments||{}).filter(m=>legacyRemainder(f,m)>0.0001).sort().reverse();
+  const bs="background:rgba(239,68,68,.14);color:#fca5a5;border:1px solid rgba(239,68,68,.3)";
   return `<div class="section" style="margin-top:12px">
     <div class="section-title">🧾 الدفعات المسجلة</div>
-    ${latest?`<div class="info-box info-amber" style="margin-bottom:10px">
-      <div style="color:#fcd34d;font-weight:700;font-size:13px">آخر عملية: ${fmtMoney(latest.cash||0)} نقداً • ${fmtDate(latest.date)}</div>
-      <div style="color:#92a0b8;font-size:11px;margin:5px 0">${(latest.allocations||[]).map(a=>monthLabel(a.month)+" "+fmtMoney(a.amount)).join("، ")}</div>
-      <button class="btn btn-sm" style="background:rgba(239,68,68,.14);color:#fca5a5;border:1px solid rgba(239,68,68,.3)" onclick="undoLastPayment('${f.id}')">↩️ التراجع عن آخر عملية دفع</button>
-    </div>`:""}
-    ${legacyMonths.length?`<div style="color:#8899bb;font-size:11px;margin-bottom:6px">دفعات قديمة — يمكن إلغاء الشهر عند الإدخال الخاطئ:</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">${legacyMonths.map(m=>`<button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#fca5a5;border:1px solid rgba(239,68,68,.3)" onclick="cancelLegacyPayment('${f.id}','${m}')">↩ ${monthLabel(m)} (${fmtMoney(famPaidAmount(f,m))})</button>`).join("")}</div>`:""}
+    ${hist.slice(0,15).map(h=>`<div class="info-box info-amber" style="margin-bottom:8px">
+      <div style="color:#fcd34d;font-weight:700;font-size:13px">${h.note?h.note:fmtMoney(h.cash||0)+" نقداً"}${h.creditUsed>0?" + "+fmtMoney(h.creditUsed)+" رصيد":""} • ${fmtDate(h.date)}</div>
+      <div style="color:#92a0b8;font-size:11px;margin:5px 0">${(h.allocations||[]).map(a=>monthLabel(a.month)+" "+fmtMoney(a.amount)).join("، ")||"—"}</div>
+      <button class="btn btn-sm" style="${bs}" onclick="undoPayment('${f.id}','${h.id}')">↩️ تراجع عن هذه العملية</button>
+    </div>`).join("")}
+    ${legacy.length?`<div style="color:#8899bb;font-size:11px;margin:6px 0">دفعات بدون سجل عملية — اضغط لإلغاء الشهر:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${legacy.map(m=>`<button class="btn btn-sm" style="${bs}" onclick="cancelLegacyPayment('${f.id}','${m}')">↩ ${monthLabel(m)} (${fmtMoney(legacyRemainder(f,m))})</button>`).join("")}</div>`:""}
+    ${!hist.length&&!legacy.length?`<div style="color:#4b5563;font-size:12px">لا توجد دفعات</div>`:""}
+    <button class="btn btn-sm" style="margin-top:10px;background:rgba(59,130,246,.12);color:#93c5fd;border:1px solid rgba(59,130,246,.3)" onclick="copyStatement('${f.id}')">📄 نسخ كشف الحساب</button>
   </div>`;
 }
-function undoLastPayment(famId){
-  const f = db.families.find(x=>x.id===famId); const history=f?.paymentHistory||[];
-  const tx=history[history.length-1]; if(!f||!tx) return;
-  if(!confirm("هل تريد التراجع عن آخر عملية دفع بقيمة "+fmtMoney(tx.cash||0)+"؟\nسيعود رصيد الأشهر والرصيد المعلق كما كانا قبل العملية.")) return;
+function undoPayment(famId, txId){
+  const f=db.families.find(x=>x.id===famId); const tx=(f?.paymentHistory||[]).find(h=>h.id===txId); if(!f||!tx) return;
+  if(!confirm("هل تريد التراجع عن هذه العملية؟\nستعود الأشهر المرتبطة بها إلى حالتها السابقة وتُعاد الأرصدة المعلقة.")) return;
   for(const a of tx.allocations||[]){
-    if(!f.payments?.[a.month]) continue;
-    f.payments[a.month].amount=Math.max(0,Number(f.payments[a.month].amount||0)-Number(a.amount||0));
-    if(f.payments[a.month].amount<=0.0001) delete f.payments[a.month];
+    const e=f.payments?.[a.month]; if(!e) continue;
+    e.amount=Math.max(0,Number(e.amount||0)-Number(a.amount||0));
+    if(e.amount<=0.0001) delete f.payments[a.month];
   }
   f.credit=Math.max(0,Number(f.credit||0)+Number(tx.creditUsed||0)-Number(tx.creditCreated||0));
-  f.paymentHistory.pop();
-  save(); showFamDetail(famId); showToast("تم التراجع عن آخر عملية ✓");
+  f.paymentHistory=f.paymentHistory.filter(h=>h.id!==txId);
+  save(); showFamDetail(famId); showToast("تم التراجع عن العملية ✓");
+}
+function undoLastPayment(famId){
+  const h=(db.families.find(x=>x.id===famId)?.paymentHistory||[]); if(h.length) undoPayment(famId,h[h.length-1].id);
 }
 function cancelLegacyPayment(famId, monthKey){
-  const f = db.families.find(x=>x.id===famId); if(!f||!f.payments?.[monthKey]) return;
-  if(!confirm("إلغاء مبلغ "+monthLabel(monthKey)+" بقيمة "+fmtMoney(famPaidAmount(f,monthKey))+"؟")) return;
-  delete f.payments[monthKey];
+  const f=db.families.find(x=>x.id===famId); if(!f||!f.payments?.[monthKey]) return;
+  const r=legacyRemainder(f,monthKey);
+  if(!confirm("إلغاء مبلغ "+monthLabel(monthKey)+" بقيمة "+fmtMoney(r)+"؟")) return;
+  f.payments[monthKey].amount=Math.max(0,famPaidAmount(f,monthKey)-r);
+  if(f.payments[monthKey].amount<=0.0001) delete f.payments[monthKey];
   save(); showFamDetail(famId); showToast("تم إلغاء الدفعة ✓");
+}
+function copyStatement(famId){
+  const f=db.families.find(x=>x.id===famId); if(!f) return;
+  const paid=Object.keys(f.payments||{}).sort(), un=famUnpaid(f);
+  const t=["كشف حساب — "+db.settings.orgName,"الاسم: "+f.name,"الاشتراك الشهري الحالي: "+fmtMoney(famFee(f)),
+    "الأشهر المدفوعة: "+(paid.map(m=>monthLabel(m)+" ("+fmtMoney(famPaidAmount(f,m))+")").join("، ")||"—"),
+    "الأشهر المتأخرة: "+(un.map(m=>monthLabel(m)+" ("+fmtMoney(famOutstanding(f,m))+")").join("، ")||"لا يوجد"),
+    "الرصيد المعلق: "+fmtMoney(f.credit||0),"الرصيد النهائي: "+fmtMoney(famBalance(f))].join("\n");
+  if(navigator.clipboard) navigator.clipboard.writeText(t).then(()=>showToast("تم نسخ كشف الحساب ✓"),()=>prompt("انسخ الكشف:",t));
+  else prompt("انسخ الكشف:",t);
 }
 function editChildDates(famId, childId){
   const f=db.families.find(x=>x.id===famId);
@@ -610,7 +635,7 @@ function sendWhatsAppReminder(id){
   const unpaid = famUnpaid(f);
   const phone = (f.whatsapp||f.phone||"").replace(/[^\d]/g,"");
   if(!phone){ showToast("لا يوجد رقم هاتف مسجل",true); return; }
-  const totalDueAmt = unpaid.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+  const totalDueAmt = unpaid.reduce((s,m)=>s+famOutstanding(f,m),0);
   const msg = "مرحباً "+f.name+"،\nتذكير بخصوص اشتراك "+db.settings.orgName+":\nالشهور المستحقة: "+unpaid.map(monthLabel).join("، ")+"\nالمبلغ المستحق: "+fmtMoney(totalDueAmt)+"\nشكراً لتعاونكم 🙏";
   window.open("https://wa.me/"+phone+"?text="+encodeURIComponent(msg), "_blank");
 }
@@ -912,14 +937,14 @@ function renderPayMonths(){
   const unpaid = famUnpaid(f);
   const dueMonths = famDueMonths(f);
   const paidMonths = Object.keys(f.payments||{});
-  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
+  const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && famOutstanding(f,m)>0.0001);
   const el = document.getElementById("pay-months");
   if(!el) return;
   let html = "";
   if(unpaid.length>0){
     html += `<div style="color:#fca5a5;font-size:12px;font-weight:700;margin:8px 0 6px">⚠️ شهور مستحقة (${unpaid.length})</div>
       <div class="month-grid">${unpaid.map(k=>{
-        const fee = famFeeForMonth(f, k);
+        const fee = famOutstanding(f, k);
         const sel = paySelected.includes(k);
         return `<button class="month-btn" style="${sel?"border-color:#3b82f6;background:rgba(59,130,246,.2);color:#93c5fd":"border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:#fca5a5"}" onclick="toggleMonth('${k}')">${monthLabel(k)}<br><small>${fmtMoney(fee)}</small></button>`;
       }).join("")}</div>`;
@@ -927,7 +952,7 @@ function renderPayMonths(){
   if(nextMonths.length>0){
     html += `<div style="color:#93c5fd;font-size:12px;font-weight:700;margin:14px 0 6px">🔵 دفع مقدماً (${nextMonths.length}) — اختياري</div>
       <div class="month-grid">${nextMonths.map(k=>{
-        const fee = famFeeForMonth(f, k);
+        const fee = famOutstanding(f, k);
         const sel = paySelected.includes(k);
         return `<button class="month-btn" style="${sel?"border-color:#3b82f6;background:rgba(59,130,246,.2);color:#93c5fd":"border-color:rgba(59,130,246,.2);background:rgba(59,130,246,.05);color:#6b8fc0"}" onclick="toggleMonth('${k}')">${monthLabel(k)}<br><small>${fmtMoney(fee)}</small></button>`;
       }).join("")}</div>`;
@@ -939,39 +964,46 @@ function renderPayMonths(){
 function confirmPay(){
   if(!paySelected.length){ showToast("اختر شهراً واحداً على الأقل",true); return; }
   const f = db.families.find(x=>x.id===payFamId); if(!f) return;
-  const total = paySelected.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+  const sel=[...paySelected].sort();
+  const total = sel.reduce((s,m)=>s+famOutstanding(f,m),0);
   const credit = Number(f.credit||0);
-  const paidAmount = parseFloat(document.getElementById("pay-amount")?.value||0);
-  const effectivePaid = paidAmount + Math.min(credit, Math.max(0, total - paidAmount));
-  if(effectivePaid < total && paidAmount <= 0){ showToast("أدخل المبلغ المدفوع أو استخدم الرصيد المعلق",true); return; }
+  const cash = Math.max(0,parseFloat(document.getElementById("pay-amount")?.value||0)||0);
+  const creditUsed = Math.min(credit, Math.max(0,total-cash));
+  if(cash<=0 && creditUsed<=0){ showToast("أدخل المبلغ المدفوع أو استخدم الرصيد المعلق",true); return; }
+  let avail = cash+creditUsed; const allocations=[]; const nowIso=new Date().toISOString();
   if(!f.payments) f.payments={};
-  paySelected.forEach(m=>{ f.payments[m]={date:new Date().toISOString(),amount:famFeeForMonth(f,m)}; });
-  const usedCredit = Math.max(0, total - paidAmount);
-  const newCredit = Math.max(0, credit - usedCredit);
-  const overPayment = Math.max(0, paidAmount - total);
-  f.credit = newCredit + overPayment;
+  for(const m of sel){
+    const amt=Math.min(famOutstanding(f,m),avail); if(amt<=0.0001) continue;
+    const e=f.payments[m]||{amount:0}; e.amount=Number(e.amount||0)+amt; e.date=nowIso; f.payments[m]=e;
+    allocations.push({month:m,amount:amt}); avail-=amt;
+  }
+  const creditCreated = Math.max(0,avail);
+  f.credit = Math.max(0,credit-creditUsed)+creditCreated;
+  if(!f.paymentHistory) f.paymentHistory=[];
+  const rid=genId().toUpperCase();
+  f.paymentHistory.push({id:rid,date:nowIso,allocations,cash,creditUsed,creditCreated,type:"payment"});
   db.families = db.families.map(x=>x.id===f.id?f:x);
   save();
-  // receipt
+  const remaining = total-allocations.reduce((s,a)=>s+a.amount,0);
   const lines = [
     "════════════════════════════",
     "   "+db.settings.orgName,
     "════════════════════════════",
-    "رقم الإيصال : "+genId().toUpperCase(),
+    "رقم الإيصال : "+rid,
     "التاريخ     : "+new Date().toLocaleDateString("ar"),
     "────────────────────────────",
     "المشترك     : "+f.name,
     "الهاتف      : "+(f.phone||"—"),
-    "عدد الأفراد : "+(1+(f.children||[]).length),
+    "عدد الأفراد : "+famCurrentMemberCount(f),
     "────────────────────────────",
     "الشهور المدفوعة:",
-    ...paySelected.sort().map(m=>"  • "+monthLabel(m)+" ("+fmtMoney(famFeeForMonth(f,m))+")"),
+    ...allocations.map(a=>"  • "+monthLabel(a.month)+" ("+fmtMoney(a.amount)+")"),
     "────────────────────────────",
-    "المبلغ النقدي : "+fmtMoney(paidAmount),
-    usedCredit>0?("من الرصيد المعلق : "+fmtMoney(usedCredit)):"",
-    "────────────────────────────",
-    "المبلغ الإجمالي : "+fmtMoney(total),
-    overPayment>0?("الرصيد المعلق الجديد : "+fmtMoney(newCredit+overPayment)):"",
+    "المبلغ النقدي : "+fmtMoney(cash),
+    creditUsed>0?("من الرصيد المعلق : "+fmtMoney(creditUsed)):"",
+    "المبلغ الإجمالي : "+fmtMoney(allocations.reduce((s,a)=>s+a.amount,0)),
+    remaining>0.0001?("المتبقي على الأشهر المختارة : "+fmtMoney(remaining)):"",
+    creditCreated>0?("الرصيد المعلق الجديد : "+fmtMoney(f.credit)):"",
     "────────────────────────────",
     "شكراً على السداد ✓",
     "════════════════════════════",
@@ -1077,7 +1109,7 @@ function renderReports(){
       <div class="section-title">حالة الأسر</div>
       ${db.families.map(f=>{
         const unpaid=famUnpaid(f); const bal=famBalance(f);
-        const dueAmt = unpaid.reduce((s,m)=>s+famFeeForMonth(f,m),0);
+        const dueAmt = unpaid.reduce((s,m)=>s+famOutstanding(f,m),0);
         return `<div class="stat-row">
           <span style="color:#c8d8f0">${f.name}</span>
           <span style="color:${unpaid.length===0?"#86efac":"#fca5a5"}">${unpaid.length===0?"✓ محدّث":unpaid.length+" شهر ("+fmtMoney(dueAmt)+")"}</span>
@@ -1130,7 +1162,7 @@ function renderSettings(){
     <div class="section">
       <div class="section-title">📊 إحصائيات</div>
       <div class="stat-row"><span>الأسر المسجلة</span><span style="color:#93c5fd">${db.families.length}</span></div>
-      <div class="stat-row"><span>إجمالي الأفراد</span><span style="color:#93c5fd">${db.families.reduce((s,f)=>s+1+(f.children||[]).length,0)}</span></div>
+      <div class="stat-row"><span>إجمالي الأفراد</span><span style="color:#93c5fd">${db.families.reduce((s,f)=>s+famCurrentMemberCount(f),0)}</span></div>
       <div class="stat-row"><span>إجمالي المصروفات</span><span style="color:#fca5a5">${db.expenses.length}</span></div>
       <div class="stat-row"><span>إجمالي الإيداعات</span><span style="color:#c4b5fd">${db.deposits.length}</span></div>
     </div>
@@ -1559,13 +1591,13 @@ function openModal(type, data){
     const unpaid = famUnpaid(f); const bal = famBalance(f);
     const dueMonths = famDueMonths(f);
     const paidMonths = Object.keys(f.payments||{});
-    const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && !paidMonths.includes(m));
+    const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && famOutstanding(f,m)>0.0001);
     const allAvail = [...unpaid, ...nextMonths];
     title.textContent="💳 تسجيل الدفع";
     body.innerHTML = `
       <div class="info-box info-blue" style="margin-bottom:14px">
         <div style="color:#93c5fd;font-weight:700;font-size:15px">${f.name}</div>
-        <div style="color:#8899bb;font-size:12px">${1+(f.children||[]).length} أفراد | اشتراك شهري: ${fmtMoney(famFee(f))}</div>
+        <div style="color:#8899bb;font-size:12px">${famCurrentMemberCount(f)} أفراد | اشتراك شهري: ${fmtMoney(famFee(f))}</div>
         ${Number(f.carryOver||0)>0?`<div style="color:#86efac;font-size:12px;margin-top:4px">✓ رصيد مرحّل: ${fmtMoney(f.carryOver)}</div>`:""}
         ${Number(f.credit||0)>0?`<div style="color:#86efac;font-size:12px;margin-top:4px">💰 رصيد معلق: ${fmtMoney(f.credit)}</div>`:""}
         <div style="color:${bal>=0?"#86efac":"#fca5a5"};font-size:13px;font-weight:700;margin-top:6px">رصيد الحساب: ${fmtMoney(bal)} ${bal>=0?"✓":"⚠️"}</div>
