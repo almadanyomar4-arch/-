@@ -230,21 +230,33 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.7.0";
 const PIN_KEY = "sub_pin";
+const PIN_FAILED_KEY = "sub_pin_failed";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
 const ONEDRIVE_META_KEY = "onedrive_meta";
 
 function blankDb(){
   return {
-    schemaVersion:1,
-    families:[],
-    expenses:[],
-    deposits:[],
+    schemaVersion:2,
+    migration:{sourceVersion:null,migratedAt:null,status:"fresh"},
+    families:[], expenses:[], deposits:[], withdrawals:[],
     carryOver:0,
-    settings:{orgName:"صندوق الاشتراكات",startDate:nowKey(),adminPhone:"",adminEmail:""}
+    auditLog:[], lockedMonths:[],
+    feeHistory:[{from:"2024-01",amount:10}],
+    settings:{orgName:"صندوق الاشتراكات",startDate:nowKey(),adminPhone:"",adminEmail:"",autoApplyFamilyCredit:false}
   };
+}
+
+function sha256(text){
+  if(!window.crypto?.subtle) return Promise.resolve("");
+  const bytes=new TextEncoder().encode(text);
+  return crypto.subtle.digest("SHA-256",bytes).then(buf=>Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join(""));
+}
+function recordAudit(action, entityType, entityId, details={}){
+  db.auditLog=Array.isArray(db.auditLog)?db.auditLog:[];
+  db.auditLog.push({id:genId(),action,entityType,entityId:entityId||null,details,timestamp:new Date().toISOString()});
 }
 
 let db = load();
@@ -254,14 +266,22 @@ try{
 }catch(e){}
 
 function load(){
-  try{ const d=localStorage.getItem(STORE); return d?JSON.parse(d):blankDb(); }catch{ return blankDb(); }
+  try{ const d=localStorage.getItem(STORE); return d?normalizeDb(JSON.parse(d)):blankDb(); }catch{ return blankDb(); }
 }
-function save(){ localStorage.setItem(STORE, JSON.stringify(db)); scheduleAutoBackup(); }
+function save(){
+  db.updatedAt=new Date().toISOString(); db.revision=Number(db.revision||0)+1;
+  localStorage.setItem(STORE, JSON.stringify(db)); scheduleAutoBackup();
+}
 function normalizeDb(d){
   if(!d||typeof d!=="object"||Array.isArray(d)) throw new Error("بنية الملف غير صحيحة");
   if(!Array.isArray(d.families)) throw new Error("لا توجد قائمة أسر في الملف");
   const arr=x=>Array.isArray(x)?x:[];
-  const out={...d,families:d.families,expenses:arr(d.expenses),deposits:arr(d.deposits),carryOver:Number(d.carryOver)||0,settings:{...blankDb().settings,...(d.settings||{})},schemaVersion:1};
+  const sourceVersion=Number(d.schemaVersion||1);
+  const out={...d,families:d.families,expenses:arr(d.expenses),deposits:arr(d.deposits),withdrawals:arr(d.withdrawals),carryOver:Number(d.carryOver)||0,
+    auditLog:arr(d.auditLog),lockedMonths:arr(d.lockedMonths),
+    feeHistory:arr(d.feeHistory).length?d.feeHistory:[{from:"2024-01",amount:10}],
+    settings:{...blankDb().settings,...(d.settings||{})},schemaVersion:2,
+    migration:{...(d.migration||{}),sourceVersion:sourceVersion===1?1:(d.migration?.sourceVersion||sourceVersion),migratedAt:d.migration?.migratedAt||new Date().toISOString(),status:d.migration?.status||"migrated-v1"}};
   const ids=new Set();
   out.families.forEach((f,i)=>{
     if(!f||typeof f!=="object") throw new Error("أسرة رقم "+(i+1)+" غير صالحة");
@@ -274,8 +294,10 @@ function normalizeDb(d){
     }
     f.paymentHistory=arr(f.paymentHistory);
     f.carryOver=Number(f.carryOver)||0; f.credit=Number(f.credit)||0;
+    f.legacyCredit=Number(f.legacyCredit!=null?f.legacyCredit:f.credit)||0;
+    f.cashReceivedLegacy=Number(f.cashReceivedLegacy!=null?f.cashReceivedLegacy:famTotalPaid(f))||0;
   });
-  [...out.expenses,...out.deposits].forEach(x=>{ if(!x||!isFinite(Number(x.amount))) throw new Error("مبلغ غير صالح في المصروفات أو الإيداعات"); });
+  [...out.expenses,...out.deposits,...out.withdrawals].forEach(x=>{ if(!x||!isFinite(Number(x.amount))) throw new Error("مبلغ غير صالح في حركة مالية"); });
   return out;
 }
 function keepSafetyBackup(tag){
@@ -335,41 +357,49 @@ function famActiveCount(f, monthKey){
   return c;
 }
 function famCurrentMemberCount(f){ return famActiveCount(f, nowKey()); }
-function famFee(f){ return FEE*famCurrentMemberCount(f); }
-function famDueMonths(f){ return monthsSince(f.startDate||f.createdAt?.slice(0,7)); }
-function famFeeForMonth(f, monthKey){ return FEE*famActiveCount(f, monthKey); }
+function famFee(f){ return famFeeForMonth(f, nowKey())+0; }
+function famFeeForMonth(f, monthKey){
+  const feeHistory=Array.isArray(db?.feeHistory)?db.feeHistory:[{from:"2024-01",amount:10}];
+  let fee=10;
+  feeHistory.slice().sort((a,b)=>String(a.from||"").localeCompare(String(b.from||""))).forEach(x=>{ if(String(x.from||"")<=monthKey) fee=Number(x.amount)||fee; });
+  return fee*famActiveCount(f, monthKey);
+}
+function famFeeForOneMember(monthKey){
+  const feeHistory=Array.isArray(db?.feeHistory)?db.feeHistory:[{from:"2024-01",amount:10}];
+  let fee=10;
+  feeHistory.slice().sort((a,b)=>String(a.from||"").localeCompare(String(b.from||""))).forEach(x=>{ if(String(x.from||"")<=monthKey) fee=Number(x.amount)||fee; });
+  return fee;
+}
 function famPaidAmount(f, monthKey){ return Number(f.payments?.[monthKey]?.amount||0); }
 function famOutstanding(f, monthKey){ return Math.max(0, famFeeForMonth(f,monthKey)-famPaidAmount(f,monthKey)); }
 function famPaidMonths(f){ return famDueMonths(f).filter(k=>famOutstanding(f,k)<=0.0001); }
-
-function famUnpaid(f){
-  return famDueMonths(f).filter(k=>famOutstanding(f,k)>0.0001);
-}
-function famTotalDue(f){
-  return famDueMonths(f).reduce((s,m)=>s+famFeeForMonth(f,m),0);
-}
+function famUnpaid(f){ return famDueMonths(f).filter(k=>famOutstanding(f,k)>0.0001); }
+function famTotalDue(f){ return famDueMonths(f).reduce((s,m)=>s+famFeeForMonth(f,m),0); }
 function famTotalPaid(f){ return Object.values(f.payments||{}).reduce((s,p)=>s+Number(p.amount||0),0); }
-function famBalance(f){ return famTotalPaid(f)+Number(f.carryOver||0)+Number(f.credit||0)-famTotalDue(f); }
-
-function monthsUntilYearEnd(){
-  const n=new Date(), keys=[];
-  for(let i=1;i<=12;i++){ const d=new Date(n.getFullYear(),n.getMonth()+i,1); keys.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")); }
-  return keys;
+function famCreditBalance(f){ return Math.max(0,Number(f.credit||0)); }
+function famArrears(f){ return famDueMonths(f).reduce((s,m)=>s+Math.max(0,famFeeForMonth(f,m)-famPaidAmount(f,m)),0); }
+function famNetRequired(f){ return Math.max(0,famArrears(f)-(Number(db.settings?.autoApplyFamilyCredit)?famCreditBalance(f):0)); }
+function famBalance(f){
+  return {arrears:famArrears(f),credit:famCreditBalance(f),netRequired:famNetRequired(f),allocated:Math.max(0,famTotalPaid(f)-famTotalDue(f))};
 }
 
-// ============================================================
-// DERIVED TOTALS
-// ============================================================
 function totals(){
   const allPaid = db.families.reduce((s,f)=>s+famTotalPaid(f),0);
   const allCarry = db.families.reduce((s,f)=>s+Number(f.carryOver||0),0);
-  const allCredit = db.families.reduce((s,f)=>s+Number(f.credit||0),0);
-  const allDue   = db.families.reduce((s,f)=>s+famTotalDue(f),0);
-  const expenses = db.expenses.reduce((s,e)=>s+Number(e.amount||0),0);
-  const deposits = db.deposits.reduce((s,d)=>s+Number(d.amount||0),0);
-  const balance  = Number(db.carryOver||0)+allCarry+allCredit+allPaid+deposits-expenses;
-  const members  = db.families.reduce((s,f)=>s+famCurrentMemberCount(f),0);
-  return {allPaid,allCarry,allDue,expenses,deposits,balance,members};
+  const allCredit = db.families.reduce((s,f)=>s+famCreditBalance(f),0);
+  const allDue = db.families.reduce((s,f)=>s+famTotalDue(f),0);
+  const allArrears = db.families.reduce((s,f)=>s+famArrears(f),0);
+  const expenses = db.expenses.filter(x=>x.status!=="voided").reduce((s,e)=>s+Number(e.amount||0),0);
+  const deposits = db.deposits.filter(x=>x.status!=="voided").reduce((s,d)=>s+Number(d.amount||0),0);
+  const withdrawals = arr(db.withdrawals).filter(x=>x.status!=="voided").reduce((s,w)=>s+Number(w.amount||0),0);
+  const cashReceived=db.families.reduce((s,f)=>{
+    const history=(f.paymentHistory||[]).filter(h=>h.status!=="voided");
+    if(history.length) return s+history.reduce((q,h)=>q+Number(h.cash||0),0);
+    return s+Number(f.cashReceivedLegacy!=null?f.cashReceivedLegacy:famTotalPaid(f));
+  },0);
+  const balance=Number(db.carryOver||0)+cashReceived+deposits-withdrawals-expenses;
+  const members=db.families.filter(f=>f.status!=="archived").reduce((s,f)=>s+famCurrentMemberCount(f),0);
+  return {allPaid,allCarry,allCredit,allDue,allArrears,expenses,deposits,withdrawals,cashReceived,balance,members};
 }
 
 // ============================================================
@@ -1121,9 +1151,6 @@ function renderFinanceContent(){
   }
 }
 
-function delExpense(id){ if(!confirm("حذف؟"))return; db.expenses=db.expenses.filter(x=>x.id!==id); save(); renderFinance(); showToast("تم الحذف"); }
-function delDeposit(id){ if(!confirm("حذف؟"))return; db.deposits=db.deposits.filter(x=>x.id!==id); save(); renderFinance(); showToast("تم الحذف"); }
-
 // ============================================================
 // REPORTS
 // ============================================================
@@ -1643,6 +1670,31 @@ function openModal(type, data){
   if(type==="addFamily"){
     title.textContent="➕ إضافة أسرة جديدة";
     tempChildren = [];
+    body.innerHTML = famForm(null);
+    updateMonthlyPreview();
+  } else if(type==="memberEdit"){
+    const f=db.families.find(x=>x.id===data.famId);
+    const child=f?.children?.find(c=>c.id===data.childId);
+    if(!f||!child){ closeModal(); return; }
+    title.textContent="✏️ تعديل / إيقاف عضو";
+    body.innerHTML=`
+      <input id="member-family-id" type="hidden" value="${f.id}"/>
+      <input id="member-child-id" type="hidden" value="${child.id}"/>
+      <div class="info-box info-blue" style="margin-bottom:14px"><div style="color:#93c5fd;font-weight:800">👤 ${child.name}</div><div style="color:#92a0b8;font-size:12px;margin-top:5px">لتوقيف التحصيل من شهر معيّن، اكتب الشهر السابق له في «آخر شهر مستحق». مثال: للإيقاف من مايو اكتب 2026-04.</div></div>
+      <div class="field"><label>بداية الاستحقاق (YYYY-MM)</label><input id="member-start" value="${child.startDate||f.startDate||nowKey()}" placeholder="2026-01"/></div>
+      <div class="field"><label>آخر شهر مستحق (اتركه فارغاً لإعادة التفعيل)</label><input id="member-end" value="${child.endDate||""}" placeholder="2026-04"/></div>
+      <button class="btn btn-amber" onclick="saveChildDates()">💾 حفظ حالة العضو</button>
+    `;
+  } else if(type==="payment"){
+    const f = data;
+    const unpaid = famUnpaid(f); const bal = famBalance(f);
+    const dueMonths = famDueMonths(f);
+    const paidMonths = Object.keys(f.payments||{});
+    const nextMonths = monthsUntilYearEnd().filter(m=>!dueMonths.includes(m) && famOutstanding(f,m)>0.0001);
+    const allAvail = [...unpaid, ...nextMonths];
+    title.textContent="💳 تسجيل الدفع";
+    body.innerHTML = `
+      <div class="info-box info-blue" style="margin-bottom:14px">
     body.innerHTML = famForm(null);
     updateMonthlyPreview();
   } else if(type==="memberEdit"){
