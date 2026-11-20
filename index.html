@@ -230,7 +230,7 @@ const STORE = "sub_v4";
 const FEE = 10;
 const MONTHS = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
 const CONFIG = { MSFT_CLIENT_ID: "aa51db18-0982-4afb-8b4b-7415afee18d7" };
-const APP_VERSION = "1.4.4";
+const APP_VERSION = "1.4.5";
 const PIN_KEY = "sub_pin";
 const MSFT_TOKENS_KEY = "msft_tokens";
 const MSFT_SCOPE = "Files.ReadWrite.AppFolder offline_access";
@@ -247,6 +247,19 @@ function blankDb(){
 }
 
 let db = load();
+function migrateLegacyMember(){
+  try{
+    if(!db.migrations) db.migrations={};
+    if(db.migrations.abi_salem_v1) return;
+    const f = db.families.find(x=>(x.name||"").trim()==="سالم مصطفى") || db.families.find(x=>(x.name||"").includes("سالم مصطفى"));
+    if(!f) return;
+    f.children = f.children||[];
+    if(!f.children.some(c=>c.name==="أبي")) f.children.push({id:genId(),name:"أبي",startDate:f.startDate||db.settings.startDate||nowKey(),endDate:"2026-05"});
+    db.migrations.abi_salem_v1 = true;
+    save();
+    setTimeout(()=>showToast("تمت إضافة العضو أبي إلى أسرة سالم مصطفى (حتى 2026-05) ✓"),400);
+  }catch(e){ console.error(e); }
+}
 
 function load(){
   try{ const d=localStorage.getItem(STORE); return d?JSON.parse(d):blankDb(); }catch{ return blankDb(); }
@@ -1684,6 +1697,7 @@ function showToast(msg, err){
 // ============================================================
 // INIT
 // ============================================================
+migrateLegacyMember();
 initPinLock();
 initConnectivity();
 initSwUpdate();
